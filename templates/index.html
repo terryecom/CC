@@ -3,197 +3,245 @@
 <head>
     <meta charset="UTF-8">
     <title>Terry Ecom Link Checker</title>
-    <meta name="viewport" content="width=900, initial-scale=1">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap 5 CSS (via CDN) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #f7f7fb;}
-        .main-card { border-radius: 18px; box-shadow: 0 2px 14px rgba(28,30,34,0.07);}
-        #logArea { height: 320px; resize: none; font-family: monospace; font-size: 14px; background: #f9f9fb; }
-        .contact-btns button { min-width: 130px; border-radius: 14px; }
-        #domainInfoPanel { min-width: 250px; max-width: 370px; border-radius: 16px; box-shadow: 0 1px 8px rgba(45,56,80,0.09); background: #fff; border: 1.5px solid #f1f1f1;}
-        #domainFavicon { width: 36px; height: 36px; margin-right: 10px; border-radius: 8px; border: 1.5px solid #f1f1f1; background: #fff; vertical-align: middle; }
-        .progress { background: #ebedf0;}
-        .main-actions { margin-top: 1rem;}
-        .summary-block { font-size: 14px; background: #f8fafc; border-radius: 12px; padding: 12px 16px;}
-        .affiliate-card { border-radius: 18px; box-shadow: 0 2px 14px rgba(28,30,34,0.08);}
-        @media (max-width: 900px) {
-            #domainInfoPanel { max-width: 100%; min-width: 0; margin-top: 2rem;}
+        body { background: #f3f4f8; }
+        .main-content { min-height: 100vh; }
+        .sidebar { min-width: 340px; max-width: 420px; }
+        .result-box { height: 60vh; overflow-y: auto; background: #fff; border-radius: 14px; box-shadow: 0 1px 8px #e2e2e2; padding: 1rem; }
+        .affiliate-card { margin-bottom: 32px; }
+        @media (max-width: 991px) {
+            .sidebar { max-width: 100%; min-width: 100%; }
+            .main-content { flex-direction: column !important; }
         }
+        .footer-menu { position: fixed; right: 16px; bottom: 18px; z-index:99; }
+        .footer-menu .btn { margin-left: 0.3em; margin-right:0.3em; }
+        .modal-body { max-height: 68vh; overflow-y: auto; }
     </style>
 </head>
 <body>
-<div class="container py-4">
-    <h2 class="mb-4 fw-semibold">Terry Ecom Link Checker</h2>
-    <div class="row gx-5 gy-4">
-        <!-- Left: Main Panel -->
-        <div class="col-lg-8 col-12">
-            <div class="card main-card p-4 mb-3">
-                <div class="mb-3 row">
-                    <label for="urlInput" class="col-sm-3 col-form-label fw-semibold">Website URL:</label>
-                    <div class="col-sm-9">
-                        <input type="text" id="urlInput" class="form-control rounded-3" placeholder="https://yourshopifystore.com">
+<div class="container-fluid">
+    <div class="d-flex main-content flex-row flex-wrap align-items-start pt-4">
+        <!-- Left/main panel -->
+        <div class="flex-grow-1 pe-3">
+            <div class="bg-white rounded-4 shadow-sm px-4 py-4 mb-4">
+                <h2 class="mb-3 fw-bold" style="color:#343a40;">Terry Ecom Link Checker</h2>
+                <form id="crawl-form" class="row g-2 align-items-center mb-3" autocomplete="off">
+                    <div class="col-md-8 col-12">
+                        <input type="url" id="url" name="url" class="form-control form-control-lg" placeholder="Enter your store URL (e.g. https://yourshop.com)" required>
                     </div>
-                </div>
-                <div class="main-actions d-flex flex-wrap gap-2 mb-3">
-                    <button id="startBtn" class="btn btn-success px-4 rounded-3 fw-semibold">Start Crawl</button>
-                    <button id="cancelBtn" class="btn btn-danger px-4 rounded-3 fw-semibold">Cancel</button>
-                    <button id="exportBtn" class="btn btn-primary px-4 rounded-3 fw-semibold">Export</button>
-                </div>
-                <textarea id="logArea" class="form-control mb-3 rounded-3" readonly></textarea>
-                <div class="mb-2">
-                    <div class="progress" style="height: 26px;">
-                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success fw-semibold" style="width:0%">0%</div>
+                    <div class="col-md-4 col-12">
+                        <button type="submit" id="start-btn" class="btn btn-primary btn-lg w-100">Start Crawl</button>
                     </div>
+                </form>
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <button class="btn btn-outline-secondary btn-sm" id="cancel-btn" disabled>Cancel</button>
+                    <button class="btn btn-outline-success btn-sm" id="export-btn" disabled>Export Results</button>
+                    <span class="ms-auto small" id="pages-scanned"></span>
                 </div>
-                <div>
-                    <span id="statusLabel" class="text-muted small">Pages Scanned: 0</span>
+                <div class="progress mb-2" style="height:24px;">
+                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%; font-weight:600;">0%</div>
                 </div>
-            </div>
-            <div class="contact-btns d-flex flex-wrap gap-2 mt-2">
-                <button onclick="window.open('https://www.terryecom.com','_blank')" class="btn btn-outline-secondary">🌐 Website</button>
-                <button onclick="window.open('mailto:terry@terryecom.com','_blank')" class="btn btn-outline-secondary">✉️ Email</button>
-                <button onclick="window.open('https://www.instagram.com/terryecom/','_blank')" class="btn btn-outline-secondary">📷 Instagram</button>
-                <button onclick="window.open('https://x.com/TerryEcom','_blank')" class="btn btn-outline-secondary">𝕏 Twitter</button>
+                <div id="result-box" class="result-box mb-2 small" style="white-space: pre-line;"></div>
             </div>
         </div>
-        <!-- Right: Domain Info Panel and Affiliate Video -->
-        <div class="col-lg-4 col-12">
-            <div id="domainInfoPanel" class="card p-0 shadow-sm" style="display:none;">
-                <div class="card-header bg-light border-0 rounded-top-3 d-flex align-items-center" style="padding-bottom:.5rem;">
-                    <img id="domainFavicon" src="" alt="Favicon" onerror="this.style.display='none'">
-                    <span class="fw-semibold fs-5">Domain Info</span>
+        <!-- Right sidebar -->
+        <div class="sidebar ps-lg-2 w-100 w-lg-auto mt-4 mt-lg-0">
+            <!-- Affiliate Card -->
+            <div class="card affiliate-card border-0 shadow-sm">
+                <div class="card-header bg-primary text-white rounded-top-3 fw-semibold fs-5 d-flex align-items-center" style="padding: .75rem 1.25rem;">
+                    <img src="https://terryecom.com/falogo.png" alt="Freedom Achievers" style="height:34px; width:auto; margin-right:12px; border-radius:7px; background:#fff;">
+                    Join Freedom Achievers Community!
                 </div>
-                <div class="card-body py-2">
-                    <ul class="list-unstyled mb-0 ps-1">
-                        <li class="mb-2"><strong>Domain:</strong> <span id="domainInfoDomain"></span></li>
-                        <li class="mb-2"><strong>Created:</strong> <span id="domainInfoCreated"></span></li>
-                        <li class="mb-2"><strong>Updated:</strong> <span id="domainInfoUpdated"></span></li>
-                        <li class="mb-2"><strong>Expires:</strong> <span id="domainInfoExpires"></span></li>
-                        <li class="mb-2"><strong>Registrar:</strong> <span id="domainInfoRegistrar"></span></li>
-                        <li class="mb-2"><strong>Organization:</strong> <span id="domainInfoOrg"></span></li>
-                        <li class="mb-2"><strong>Nameservers:</strong>
-                            <ul id="domainInfoNameservers" class="mb-0 ps-3" style="font-size:14px"></ul>
-                        </li>
-                        <li class="mb-2"><strong>DNS:</strong>
-                            <ul id="dnsInfo" class="mb-0 ps-3" style="font-size:14px"></ul>
-                        </li>
-                        <li class="mb-2"><strong>SSL:</strong> <span id="sslInfo"></span></li>
-                        <li class="mb-2"><strong>CDN:</strong> <span id="cdnInfo"></span></li>
-                        <li class="mb-2"><strong>Sitemap:</strong> <span id="sitemapInfo"></span></li>
-                        <li class="mb-2"><strong>Robots.txt:</strong>
-                            <span id="robotsInfo"></span>
-                            <pre id="robotsTxtPreview" style="font-size:12px; max-height:60px; overflow:auto; background:#f3f4f6; border-radius:6px; margin:3px 0 0 0;"></pre>
-                        </li>
-                    </ul>
-                </div>
-                <div class="card-footer summary-block mt-2" id="summaryBlock" style="display:none;">
-                    <!-- Summary Report lines go here -->
-                </div>
-            </div>
-            <!-- Error box -->
-            <div id="domainInfoErrorBox" class="alert alert-danger py-2 px-3 mt-4" style="display:none">
-                <span id="domainInfoErrorText"></span>
-            </div>
-            <!-- Affiliate Video Card -->
-            <div class="card affiliate-card mt-4 border-0 shadow-sm">
-                <div class="card-header bg-primary text-white rounded-top-3 fw-semibold fs-5" style="padding: .75rem 1.25rem;">
-                    🚀 Join Freedom Achievers Community!
-                </div>
-                <div class="card-body pb-3 pt-3">
-                    <!-- Responsive video embed or link -->
-                    <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius: 12px;">
-                        <iframe src="https://www.skool.com/freedom-achievers/about?ref=7221df868ec548c58b522deaae4537fe"
-                                style="position:absolute;top:0;left:0;width:100%;height:100%;border-radius:12px;border:none;"
-                                allowfullscreen
-                                title="Freedom Achievers Skool Community"></iframe>
-                    </div>
-                    <div class="mt-3 mb-2 text-dark" style="font-size:15px;">
-                        <b>Unlock financial freedom, proven business strategies, and a global network of entrepreneurs.</b>
-                        <br>
-                        Watch the video above, then click below to join our exclusive community.<br>
-                        <span class="text-success fw-bold">Over 20,000+ members and growing!</span>
+                <div class="card-body pb-3 pt-3 text-center">
+                    <a href="https://www.skool.com/freedom-achievers/about?ref=7221df868ec548c58b522deaae4537fe" target="_blank" style="text-decoration:none;">
+                        <img src="https://terryecom.com/fapromo.png"
+                             alt="Freedom Achievers Promo" style="width:100%;max-width:370px;border-radius:18px;box-shadow:0 0 18px #eee;background:#fff;">
+                    </a>
+                    <div class="mt-3 mb-2 text-dark" style="font-size:16px;">
+                        <b>Make $1,000/day with Google Ads Dropshipping<br>for just $199/mo</b><br>
+                        <span class="text-success fw-bold">Next price increase soon—lock in your rate!</span>
                     </div>
                     <a href="https://www.skool.com/freedom-achievers/about?ref=7221df868ec548c58b522deaae4537fe"
-                       target="_blank" class="btn btn-success w-100 py-2 fw-semibold fs-6"
-                       style="border-radius: 10px;">
-                        💎 Join Freedom Achievers Community
+                       target="_blank" class="btn btn-warning w-100 py-2 fw-semibold fs-6 mb-2"
+                       style="border-radius: 10px; font-size: 1.1rem;">
+                        💎 JOIN $199 / month
                     </a>
+                    <div class="text-muted small">Secure checkout • VISA/MC/AMEX accepted</div>
+                    <div class="text-secondary small mt-2">
+                        “From 0 to €50K in the first full month (18K+ Profit)” — Max L.
+                    </div>
                 </div>
-                <div class="card-footer text-muted text-center small py-2" style="border-radius:0 0 18px 18px;">
-                    Powered by Skool. Your success community.
+            </div>
+            <!-- Domain Info Panel (filled by JS) -->
+            <div class="card border-0 shadow-sm mb-4" id="domain-info-panel" style="display:none;">
+                <div class="card-header bg-light fw-bold">Domain Information</div>
+                <div class="card-body" id="domain-info-content">
+                    <!-- JS fills this with WHOIS/DNS/SSL details -->
                 </div>
             </div>
         </div>
     </div>
 </div>
-<!-- FOOTER -->
-<footer class="mt-5 pt-4 pb-3 text-center text-muted bg-light small" style="border-top:1px solid #eee;">
-    <div>
-        &copy; 2024 Terry Ecom Link Checker &mdash;
-        <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal" class="mx-2">Privacy Policy</a> |
-        <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal" class="mx-2">Terms &amp; Conditions</a> |
-        <a href="#" data-bs-toggle="modal" data-bs-target="#disclaimerModal" class="mx-2">Disclaimer</a> |
-        <a href="#" data-bs-toggle="modal" data-bs-target="#cookieModal" class="mx-2">Cookie Policy</a> |
-        <a href="#" data-bs-toggle="modal" data-bs-target="#contactModal" class="mx-2">Contact</a>
-    </div>
-</footer>
 
-<!-- MODALS FOR POLICIES -->
-<!-- Privacy Modal -->
-<div class="modal fade" id="privacyModal" tabindex="-1" aria-labelledby="privacyModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="privacyModalLabel">Privacy Policy</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+<!-- Footer/policies menu -->
+<div class="footer-menu d-flex align-items-center">
+    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Policy</button>
+    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#termsModal">Terms</button>
+    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#disclaimerModal">Disclaimer</button>
+    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#cookieModal">Cookies</button>
+    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#contactModal">Contact</button>
+</div>
+
+<!-- Modals for policies and contact -->
+<!-- Privacy -->
+<div class="modal fade" id="privacyModal" tabindex="-1" aria-labelledby="privacyLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="privacyLabel">Privacy Policy</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
     <div class="modal-body">
-      <p>We respect your privacy. This site does not collect personal information beyond what is necessary for functionality. Data processed during site crawls is not stored or sold. For questions, contact <a href="mailto:terry@terryecom.com">terry@terryecom.com</a>.</p>
+      <p><b>Last updated:</b> July 2025</p>
+      <p>This site does not collect or store personal data, except as required to process your requests (e.g. domain info lookups). All data is processed securely and not shared with third parties. Third-party links, such as the Freedom Achievers Community, may have their own privacy policies. By using this site, you agree to these terms.</p>
     </div>
   </div></div>
 </div>
-<!-- Terms Modal -->
-<div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="termsModalLabel">Terms &amp; Conditions</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+<!-- Terms -->
+<div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="termsLabel">Terms &amp; Conditions</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
     <div class="modal-body">
-      <p>By using this site, you agree to use the link checker tool for lawful purposes only. Results are provided as-is, without warranty. Use at your own risk. We reserve the right to modify these terms at any time.</p>
+      <p>By using this free tool, you agree to use it for lawful purposes only. Results and reports are for informational purposes and are not guaranteed for accuracy. No liability for decisions based on the output.</p>
+      <p>You are responsible for complying with your own site's terms and privacy obligations.</p>
     </div>
   </div></div>
 </div>
-<!-- Disclaimer Modal -->
-<div class="modal fade" id="disclaimerModal" tabindex="-1" aria-labelledby="disclaimerModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="disclaimerModalLabel">Disclaimer</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+<!-- Disclaimer -->
+<div class="modal fade" id="disclaimerModal" tabindex="-1" aria-labelledby="disclaimerLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="disclaimerLabel">Disclaimer</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
     <div class="modal-body">
-      <p>This link checker tool and domain information is provided for informational purposes only. We make no guarantees of accuracy or fitness for a particular purpose. Always verify results independently before taking business action.</p>
+      <p>This website is not affiliated with Shopify, Skool, or any other service mentioned. All trademarks are property of their respective owners. The affiliate program for Freedom Achievers is subject to their terms.</p>
     </div>
   </div></div>
 </div>
-<!-- Cookie Policy Modal -->
-<div class="modal fade" id="cookieModal" tabindex="-1" aria-labelledby="cookieModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="cookieModalLabel">Cookie Policy</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+<!-- Cookie Policy -->
+<div class="modal fade" id="cookieModal" tabindex="-1" aria-labelledby="cookieLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="cookieLabel">Cookie Policy</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
     <div class="modal-body">
-      <p>This website does not use cookies for tracking or marketing purposes. Any cookies used are strictly necessary for the operation of the site. We do not use third-party tracking cookies.</p>
+      <p>This site uses only technical cookies required for operation. No marketing or analytics cookies are used. Third-party sites may use cookies when you visit links such as Freedom Achievers. By using this site, you consent to the use of necessary cookies.</p>
     </div>
   </div></div>
 </div>
-<!-- Contact Modal -->
-<div class="modal fade" id="contactModal" tabindex="-1" aria-labelledby="contactModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="contactModalLabel">Contact</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+<!-- Contact -->
+<div class="modal fade" id="contactModal" tabindex="-1" aria-labelledby="contactLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="contactLabel">Contact</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
     <div class="modal-body">
-      <p>Questions, feedback, or support? Email us at <a href="mailto:terry@terryecom.com">terry@terryecom.com</a> or visit <a href="https://www.terryecom.com" target="_blank">www.terryecom.com</a></p>
+      <p>Questions? Feedback? <a href="mailto:terry@terryecom.com">terry@terryecom.com</a></p>
     </div>
   </div></div>
 </div>
+
+<!-- Bootstrap 5 JS (via CDN) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<!-- (rest of your JS code from previous index.html stays the same!) -->
+<!-- App JS -->
 <script>
-    // ... (existing JavaScript from your app interface goes here, unchanged)
-    // Copy from previous index.html code block above!
+const crawlForm = document.getElementById('crawl-form');
+const resultBox = document.getElementById('result-box');
+const progressBar = document.getElementById('progress-bar');
+const exportBtn = document.getElementById('export-btn');
+const cancelBtn = document.getElementById('cancel-btn');
+const pagesScanned = document.getElementById('pages-scanned');
+const domainInfoPanel = document.getElementById('domain-info-panel');
+const domainInfoContent = document.getElementById('domain-info-content');
+
+let polling = null, finished = false;
+
+crawlForm.onsubmit = function(e) {
+    e.preventDefault();
+    resultBox.innerText = '';
+    progressBar.style.width = "0%";
+    progressBar.innerText = "0%";
+    exportBtn.disabled = true;
+    cancelBtn.disabled = false;
+    pagesScanned.innerText = '';
+    domainInfoPanel.style.display = 'none';
+    domainInfoContent.innerHTML = '';
+    finished = false;
+    const url = document.getElementById('url').value.trim();
+    fetch("/start_crawl", {
+        method: "POST",
+        body: new URLSearchParams({ url }),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+    }).then(resp => resp.json()).then(data => {
+        if (data.status === "started") {
+            if (data.domain_info) showDomainInfo(data.domain_info);
+            pollProgress();
+        } else if (data.status === "error") {
+            resultBox.innerHTML = '<span class="text-danger">'+data.msg+'</span>';
+            cancelBtn.disabled = true;
+        }
+    }).catch(err => {
+        resultBox.innerHTML = '<span class="text-danger">Error starting crawl.</span>';
+        cancelBtn.disabled = true;
+    });
+};
+
+function pollProgress() {
+    if (polling) clearTimeout(polling);
+    fetch('/progress').then(resp=>resp.json()).then(data=>{
+        let logs = (data.logs || []).join('\n');
+        resultBox.innerText = logs;
+        let prog = data.progress || 0;
+        progressBar.style.width = prog+"%";
+        progressBar.innerText = prog+"%";
+        pagesScanned.innerText = data.pages_scanned ? ("Pages scanned: " + data.pages_scanned) : "";
+        if (data.domain_info) showDomainInfo(data.domain_info);
+        if (!data.finished) {
+            polling = setTimeout(pollProgress, 1100);
+            exportBtn.disabled = true;
+        } else {
+            exportBtn.disabled = false;
+            cancelBtn.disabled = true;
+            finished = true;
+        }
+    });
+}
+
+cancelBtn.onclick = function() {
+    fetch("/cancel", { method: "POST" });
+    cancelBtn.disabled = true;
+};
+
+exportBtn.onclick = function() {
+    window.location = "/export";
+};
+
+function showDomainInfo(info) {
+    if (!info || !info.domain) { domainInfoPanel.style.display = 'none'; return; }
+    let html = `
+        <div><b>Domain:</b> ${info.domain}</div>
+        <div><b>Registrar:</b> ${info.registrar}</div>
+        <div><b>Organization:</b> ${info.org || 'Unknown'}</div>
+        <div><b>Created:</b> ${info.created}</div>
+        <div><b>Expires:</b> ${info.expires}</div>
+        <div><b>Nameservers:</b> ${(info.nameservers||[]).join(', ')}</div>
+    `;
+    domainInfoContent.innerHTML = html;
+    domainInfoPanel.style.display = 'block';
+}
 </script>
 </body>
 </html>
