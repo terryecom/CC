@@ -6,88 +6,98 @@
     <meta name="viewport" content="width=900, initial-scale=1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <style>
+        body { background: #f7f7fb;}
+        .main-card { border-radius: 18px; box-shadow: 0 2px 14px rgba(28,30,34,0.07);}
         #logArea {
-            height: 340px;
+            height: 320px;
             resize: none;
             font-family: monospace;
             font-size: 14px;
+            background: #f9f9fb;
         }
         .contact-btns button {
             min-width: 130px;
+            border-radius: 14px;
         }
         #domainInfoPanel {
-            min-width: 260px;
-            max-width: 360px;
+            min-width: 250px;
+            max-width: 340px;
+            border-radius: 16px;
+            box-shadow: 0 1px 8px rgba(45,56,80,0.09);
+            background: #fff;
+            border: 1.5px solid #f1f1f1;
         }
         #domainFavicon {
             width: 36px;
             height: 36px;
             margin-right: 10px;
-            border-radius: 7px;
-            border: 1px solid #ddd;
+            border-radius: 8px;
+            border: 1.5px solid #f1f1f1;
             background: #fff;
             vertical-align: middle;
         }
+        .progress { background: #ebedf0;}
+        .main-actions { margin-top: 1rem;}
         @media (max-width: 900px) {
             #domainInfoPanel { max-width: 100%; min-width: 0; margin-top: 2rem;}
         }
     </style>
 </head>
-<body class="bg-light">
+<body>
 <div class="container py-4">
-    <h2 class="mb-3">Terry Ecom Link Checker</h2>
-    <div class="row gx-5">
-        <!-- Left: Crawl/search/results -->
+    <h2 class="mb-4 fw-semibold">Terry Ecom Link Checker</h2>
+    <div class="row gx-5 gy-4">
+        <!-- Left: Main Panel -->
         <div class="col-lg-8 col-12">
-            <div class="mb-3 row">
-                <label for="urlInput" class="col-sm-2 col-form-label">Website URL:</label>
-                <div class="col-sm-10">
-                    <input type="text" id="urlInput" class="form-control" placeholder="https://yourshopifystore.com">
+            <div class="card main-card p-4 mb-3">
+                <div class="mb-3 row">
+                    <label for="urlInput" class="col-sm-3 col-form-label fw-semibold">Website URL:</label>
+                    <div class="col-sm-9">
+                        <input type="text" id="urlInput" class="form-control rounded-3" placeholder="https://yourshopifystore.com">
+                    </div>
+                </div>
+                <div class="main-actions d-flex flex-wrap gap-2 mb-3">
+                    <button id="startBtn" class="btn btn-success px-4 rounded-3 fw-semibold">Start Crawl</button>
+                    <button id="cancelBtn" class="btn btn-danger px-4 rounded-3 fw-semibold">Cancel</button>
+                    <button id="exportBtn" class="btn btn-primary px-4 rounded-3 fw-semibold">Export</button>
+                </div>
+                <textarea id="logArea" class="form-control mb-3 rounded-3" readonly></textarea>
+                <div class="mb-2">
+                    <div class="progress" style="height: 26px;">
+                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success fw-semibold" style="width:0%">0%</div>
+                    </div>
+                </div>
+                <div>
+                    <span id="statusLabel" class="text-muted small">Pages Scanned: 0</span>
                 </div>
             </div>
-            <div class="mb-3">
-                <button id="startBtn" class="btn btn-success me-2">Start Crawl</button>
-                <button id="cancelBtn" class="btn btn-danger me-2">Cancel</button>
-                <button id="exportBtn" class="btn btn-primary">Export Results</button>
-            </div>
-            <div class="mb-3">
-                <textarea id="logArea" class="form-control" readonly></textarea>
-            </div>
-            <div class="mb-3">
-                <div class="progress" style="height: 26px;">
-                    <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%">0%</div>
-                </div>
-            </div>
-            <div class="mb-3">
-                <span id="statusLabel">Pages Scanned: 0</span>
-            </div>
-            <div class="mb-3 contact-btns d-flex flex-wrap gap-2">
-                <button onclick="window.open('https://www.terryecom.com','_blank')" class="btn btn-secondary">🌐 Website</button>
-                <button onclick="window.open('mailto:terry@terryecom.com','_blank')" class="btn btn-secondary">✉️ Email</button>
-                <button onclick="window.open('https://www.instagram.com/terryecom/','_blank')" class="btn btn-secondary">📷 Instagram</button>
-                <button onclick="window.open('https://x.com/TerryEcom','_blank')" class="btn btn-secondary">𝕏 Twitter</button>
+            <div class="contact-btns d-flex flex-wrap gap-2 mt-2">
+                <button onclick="window.open('https://www.terryecom.com','_blank')" class="btn btn-outline-secondary">🌐 Website</button>
+                <button onclick="window.open('mailto:terry@terryecom.com','_blank')" class="btn btn-outline-secondary">✉️ Email</button>
+                <button onclick="window.open('https://www.instagram.com/terryecom/','_blank')" class="btn btn-outline-secondary">📷 Instagram</button>
+                <button onclick="window.open('https://x.com/TerryEcom','_blank')" class="btn btn-outline-secondary">𝕏 Twitter</button>
             </div>
         </div>
         <!-- Right: Domain Info Panel -->
-        <div class="col-lg-4 col-12 mt-lg-0 mt-4">
-            <div id="domainInfoPanel" class="card shadow" style="display:none;">
-                <div class="card-header bg-secondary text-white d-flex align-items-center">
+        <div class="col-lg-4 col-12">
+            <div id="domainInfoPanel" class="card p-0 shadow-sm" style="display:none;">
+                <div class="card-header bg-light border-0 rounded-top-3 d-flex align-items-center" style="padding-bottom:.5rem;">
                     <img id="domainFavicon" src="" alt="Favicon" onerror="this.style.display='none'">
-                    <strong>Domain Info</strong>
+                    <span class="fw-semibold fs-5">Domain Info</span>
                 </div>
-                <div class="card-body">
-                    <ul class="list-unstyled mb-0">
-                        <li><strong>Domain:</strong> <span id="domainInfoDomain"></span></li>
-                        <li><strong>Created:</strong> <span id="domainInfoCreated"></span></li>
-                        <li><strong>Registrar:</strong> <span id="domainInfoRegistrar"></span></li>
-                        <li><strong>Updated:</strong> <span id="domainInfoUpdated"></span></li>
-                        <li><strong>Nameservers:</strong>
-                            <ul id="domainInfoNameservers" class="mb-0 ps-2" style="font-size:14px"></ul>
+                <div class="card-body py-2">
+                    <ul class="list-unstyled mb-0 ps-1">
+                        <li class="mb-2"><strong>Domain:</strong> <span id="domainInfoDomain"></span></li>
+                        <li class="mb-2"><strong>Created:</strong> <span id="domainInfoCreated"></span></li>
+                        <li class="mb-2"><strong>Updated:</strong> <span id="domainInfoUpdated"></span></li>
+                        <li class="mb-2"><strong>Registrar:</strong> <span id="domainInfoRegistrar"></span></li>
+                        <li class="mb-1"><strong>Nameservers:</strong>
+                            <ul id="domainInfoNameservers" class="mb-0 ps-3" style="font-size:14px"></ul>
                         </li>
                     </ul>
                 </div>
             </div>
-            <!-- Error box (domain does not exist) -->
+            <!-- Error box -->
             <div id="domainInfoErrorBox" class="alert alert-danger py-2 px-3 mt-4" style="display:none">
                 <span id="domainInfoErrorText"></span>
             </div>
