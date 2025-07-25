@@ -1,38 +1,20 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Terry Ecom Link Checker</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Bootstrap 5 CSS (via CDN) -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background: #f3f4f8; }
-        .main-content { min-height: 100vh; }
-        .sidebar { min-width: 340px; max-width: 420px; }
-        .result-box { height: 60vh; overflow-y: auto; background: #fff; border-radius: 14px; box-shadow: 0 1px 8px #e2e2e2; padding: 1rem; }
-        .affiliate-card { margin-bottom: 32px; }
-        @media (max-width: 991px) {
-            .sidebar { max-width: 100%; min-width: 100%; }
-            .main-content { flex-direction: column !important; }
-        }
-        .footer-menu { position: fixed; right: 16px; bottom: 18px; z-index:99; }
-        .footer-menu .btn { margin-left: 0.3em; margin-right:0.3em; }
-        .modal-body { max-height: 68vh; overflow-y: auto; }
-    </style>
-</head>
-<body>
+{% extends "base.html" %}
+{% block title %}Terry Ecom Link Checker{% endblock %}
+{% block content %}
 <div class="container-fluid">
     <div class="d-flex main-content flex-row flex-wrap align-items-start pt-4">
-        <!-- Left/main panel -->
         <div class="flex-grow-1 pe-3">
             <div class="bg-white rounded-4 shadow-sm px-4 py-4 mb-4">
                 <h2 class="mb-3 fw-bold" style="color:#343a40;">Terry Ecom Link Checker</h2>
                 <form id="crawl-form" class="row g-2 align-items-center mb-3" autocomplete="off">
-                    <div class="col-md-8 col-12">
-                        <input type="url" id="url" name="url" class="form-control form-control-lg" placeholder="Enter your store URL (e.g. https://yourshop.com)" required>
+                    <div class="col-md-7 col-12">
+                        <input type="text" id="url" name="url" class="form-control form-control-lg" placeholder="Enter your store URL or domain" required>
                     </div>
-                    <div class="col-md-4 col-12">
+                    <div class="col-md-3 col-6">
+                        <input type="text" class="form-control form-control-lg" id="captcha" name="captcha"
+                          placeholder="Captcha: {{captcha_a}}+{{captcha_b}} = ?" required>
+                    </div>
+                    <div class="col-md-2 col-6">
                         <button type="submit" id="start-btn" class="btn btn-primary btn-lg w-100">Start Crawl</button>
                     </div>
                 </form>
@@ -47,7 +29,6 @@
                 <div id="result-box" class="result-box mb-2 small" style="white-space: pre-line;"></div>
             </div>
         </div>
-        <!-- Right sidebar -->
         <div class="sidebar ps-lg-2 w-100 w-lg-auto mt-4 mt-lg-0">
             <!-- Affiliate Card -->
             <div class="card affiliate-card border-0 shadow-sm">
@@ -75,82 +56,11 @@
                     </div>
                 </div>
             </div>
-            <!-- (No domain info panel: removed) -->
         </div>
     </div>
 </div>
-
-<!-- Footer/policies menu -->
-<div class="footer-menu d-flex align-items-center">
-    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Policy</button>
-    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#termsModal">Terms</button>
-    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#disclaimerModal">Disclaimer</button>
-    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#cookieModal">Cookies</button>
-    <button class="btn btn-link text-decoration-none small" data-bs-toggle="modal" data-bs-target="#contactModal">Contact</button>
-</div>
-
-<!-- Modals for policies and contact -->
-<!-- Privacy -->
-<div class="modal fade" id="privacyModal" tabindex="-1" aria-labelledby="privacyLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="privacyLabel">Privacy Policy</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
-    <div class="modal-body">
-      <p><b>Last updated:</b> July 2025</p>
-      <p>This site does not collect or store personal data, except as required to process your requests (e.g. domain info lookups). All data is processed securely and not shared with third parties. Third-party links, such as the Freedom Achievers Community, may have their own privacy policies. By using this site, you agree to these terms.</p>
-    </div>
-  </div></div>
-</div>
-<!-- Terms -->
-<div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="termsLabel">Terms &amp; Conditions</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
-    <div class="modal-body">
-      <p>By using this free tool, you agree to use it for lawful purposes only. Results and reports are for informational purposes and are not guaranteed for accuracy. No liability for decisions based on the output.</p>
-      <p>You are responsible for complying with your own site's terms and privacy obligations.</p>
-    </div>
-  </div></div>
-</div>
-<!-- Disclaimer -->
-<div class="modal fade" id="disclaimerModal" tabindex="-1" aria-labelledby="disclaimerLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="disclaimerLabel">Disclaimer</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
-    <div class="modal-body">
-      <p>This website is not affiliated with Shopify, Skool, or any other service mentioned. All trademarks are property of their respective owners. The affiliate program for Freedom Achievers is subject to their terms.</p>
-    </div>
-  </div></div>
-</div>
-<!-- Cookie Policy -->
-<div class="modal fade" id="cookieModal" tabindex="-1" aria-labelledby="cookieLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="cookieLabel">Cookie Policy</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
-    <div class="modal-body">
-      <p>This site uses only technical cookies required for operation. No marketing or analytics cookies are used. Third-party sites may use cookies when you visit links such as Freedom Achievers. By using this site, you consent to the use of necessary cookies.</p>
-    </div>
-  </div></div>
-</div>
-<!-- Contact -->
-<div class="modal fade" id="contactModal" tabindex="-1" aria-labelledby="contactLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title" id="contactLabel">Contact</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-    </div>
-    <div class="modal-body">
-      <p>Questions? Feedback? <a href="mailto:terry@terryecom.com">terry@terryecom.com</a></p>
-    </div>
-  </div></div>
-</div>
-
-<!-- Bootstrap 5 JS (via CDN) -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<!-- App JS -->
+{% endblock %}
+{% block scripts %}
 <script>
 const crawlForm = document.getElementById('crawl-form');
 const resultBox = document.getElementById('result-box');
@@ -171,9 +81,10 @@ crawlForm.onsubmit = function(e) {
     pagesScanned.innerText = '';
     finished = false;
     const url = document.getElementById('url').value.trim();
+    const captcha = document.getElementById('captcha').value.trim();
     fetch("/start_crawl", {
         method: "POST",
-        body: new URLSearchParams({ url }),
+        body: new URLSearchParams({ url, captcha }),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'}
     }).then(resp => resp.json()).then(data => {
         if (data.status === "started") {
@@ -217,5 +128,4 @@ exportBtn.onclick = function() {
     window.location = "/export";
 };
 </script>
-</body>
-</html>
+{% endblock %}
