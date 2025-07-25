@@ -6,7 +6,6 @@ from datetime import datetime
 import os
 
 import requests
-import whois
 from bs4 import BeautifulSoup
 from flask import Flask, render_template, request, jsonify, send_file, session
 
@@ -22,39 +21,6 @@ crawl_states = {}
 
 def normalize_domain(domain):
     return domain.lower().replace("www.", "")
-
-def get_domain_info(domain):
-    try:
-        w = whois.whois(domain)
-        created = w.creation_date
-        if isinstance(created, list):
-            created = created[0]
-        updated = w.updated_date
-        if isinstance(updated, list):
-            updated = updated[0]
-        registrar = w.registrar
-        nameservers = w.name_servers
-        if isinstance(nameservers, str):
-            nameservers = [nameservers]
-        elif nameservers is None:
-            nameservers = []
-        # Remove blanks/empties and normalize case
-        nameservers = [str(ns).strip() for ns in nameservers if ns]
-        return {
-            "domain": domain,
-            "created": str(created) if created else "Unknown",
-            "updated": str(updated) if updated else "Unknown",
-            "registrar": registrar if registrar else "Unknown",
-            "nameservers": nameservers if nameservers else ["Unknown"]
-        }
-    except Exception:
-        return {
-            "domain": domain,
-            "created": "Unknown",
-            "updated": "Unknown",
-            "registrar": "Unknown",
-            "nameservers": ["Unknown"]
-        }
 
 def crawl_site(start_url, domain, session_id):
     state = crawl_states[session_id]
@@ -91,14 +57,12 @@ def crawl_site(start_url, domain, session_id):
                         try:
                             email = href.split(':',1)[1].split('?',1)[0]
                             email_domain = email.split('@')[1].lower()
-                            # Only log if not the same domain
                             if normalize_domain(email_domain) != domain:
                                 already_seen = outbound_links.setdefault(href, set())
                                 if url not in already_seen:
                                     already_seen.add(url)
                                     state["logs"].append(f"📧 External mailto: {href} (found on {url})")
                         except Exception:
-                            # Log malformed mailto (missing @ etc)
                             already_seen = outbound_links.setdefault(href, set())
                             if url not in already_seen:
                                 already_seen.add(url)
@@ -128,7 +92,6 @@ def crawl_site(start_url, domain, session_id):
                             state["logs"].append(f"❌ Failed to load: {normalized_url} (found on {url})")
 
                 pages_scanned += 1
-                # Progress: never decrease
                 progress = int((pages_scanned / (pages_scanned + len(to_visit))) * 100) if (pages_scanned + len(to_visit)) else 100
                 state["max_progress_seen"] = max(state.get("max_progress_seen", 0), progress)
                 state["progress"] = state["max_progress_seen"]
@@ -138,12 +101,11 @@ def crawl_site(start_url, domain, session_id):
                 broken_links.setdefault(url, set()).add(url)
                 state["logs"].append(f"❌ Failed to crawl: {url} (found on {url})")
 
-        # State updates for frontend/export
         state["visited"] = list(visited)
         state["outbound_links"] = {k: list(v) for k, v in outbound_links.items()}
         state["broken_links"] = {k: list(v) for k, v in broken_links.items()}
 
-    state["logs"].append(f"✅ Crawl complete. Outbound links: {len(outbound_links)}, 404s: {len(broken_links)}")
+    state["logs"].append(f"✅ Crawl complete. Incorrect Outbound Links: {len(outbound_links)}, 404 Errors: {len(broken_links)}")
     state["progress"] = 100
     state["finished"] = True
 
@@ -154,8 +116,6 @@ def index():
 @app.route("/start_crawl", methods=["POST"])
 def start_crawl():
     url = request.form.get("url", "").strip()
-    if not url:
-        return jsonify({"status": "error", "msg": "please enter a URL"}), 400
     if not url.startswith("http"):
         url = "https://" + url
     parsed = urlparse(url)
@@ -169,10 +129,6 @@ def start_crawl():
     except socket.error:
         return jsonify({"status": "error", "msg": "❌ Domain does not exist or is unreachable!"}), 400
 
-    # 2. WHOIS info
-    domain_info = get_domain_info(domain)
-
-    # 3. Setup crawl state
     crawl_states[session_id] = {
         "logs": [],
         "progress": 0,
@@ -184,25 +140,23 @@ def start_crawl():
         "cancel": False,
         "start_url": url,
         "domain": domain,
-        "domain_info": domain_info,
         "max_progress_seen": 0
     }
 
     threading.Thread(target=crawl_site, args=(url, domain, session_id), daemon=True).start()
-    return jsonify({"status": "started", "domain_info": domain_info})
+    return jsonify({"status": "started"})
 
 @app.route("/progress", methods=["GET"])
 def progress():
     session_id = session.get("sid")
     state = crawl_states.get(session_id)
     if not state:
-        return jsonify({"logs": [], "progress": 0, "pages_scanned": 0, "finished": True, "domain_info": {}})
+        return jsonify({"logs": [], "progress": 0, "pages_scanned": 0, "finished": True})
     return jsonify({
         "logs": state["logs"],
         "progress": state["progress"],
         "pages_scanned": state["pages_scanned"],
-        "finished": state["finished"],
-        "domain_info": state.get("domain_info", {})
+        "finished": state["finished"]
     })
 
 @app.route("/cancel", methods=["POST"])
@@ -220,17 +174,12 @@ def export():
     state = crawl_states.get(session_id)
     if not state:
         return "No data", 404
-    domain_info = state.get("domain_info", {})
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     domain_clean = state["domain"].replace('.', '_')
     filename = f"crawl_results_{domain_clean}_{timestamp}.txt"
     with open(filename, "w", encoding="utf-8") as f:
         f.write("Terry Ecom Link Checker Results\n")
-        f.write(f"Checked Domain: {domain_info.get('domain', state['domain'])}\n")
-        f.write(f"Created: {domain_info.get('created')}\n")
-        f.write(f"Updated: {domain_info.get('updated')}\n")
-        f.write(f"Registrar: {domain_info.get('registrar')}\n")
-        f.write(f"Nameservers: {', '.join(domain_info.get('nameservers', []))}\n")
+        f.write(f"Checked Domain: {state['domain']}\n")
         f.write(f"Timestamp: {timestamp}\n\n")
         f.write("External/Malformed Mailto Links (and where found):\n")
         for link, sources in sorted(state["outbound_links"].items()):
