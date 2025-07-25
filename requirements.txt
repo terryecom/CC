@@ -3,4 +3,4 @@ flask-login
 requests
 Werkzeug
 Jinja2
-
+gunicorn
