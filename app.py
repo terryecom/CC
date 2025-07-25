@@ -18,8 +18,8 @@ EXCLUDED_DOMAINS = [
 ]
 crawl_states = {}
 
-@app.before_serving
-def before_serving():
+@app.before_first_request
+def before_first_request():
     pass  # Placeholder for DB init, etc.
 
 def normalize_domain(domain):
@@ -29,21 +29,17 @@ def normalize_domain(domain):
     return domain
 
 def sanitize_input_url(input_url):
-    """Ensure input domain is converted to a full URL for crawling."""
     url = input_url.strip()
     if not url:
         return ""
-    # Remove protocols for parsing, then re-add
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    # If user entered only a bare domain (e.g. "example.com"), urlparse will fix
     parsed = urlparse(url)
     if not parsed.netloc:
         url = "https://" + parsed.path
     return url
 
 def get_favicon_url(domain):
-    # Try to get the favicon.ico file from the root of the domain (optional feature)
     return f"https://{domain}/favicon.ico"
 
 def crawl_site(start_url, domain, session_id):
@@ -79,7 +75,6 @@ def crawl_site(start_url, domain, session_id):
                         try:
                             email = href.split(':',1)[1].split('?',1)[0]
                             email_domain = email.split('@')[1].lower()
-                            # Only log if not the same domain
                             if normalize_domain(email_domain) != domain:
                                 already_seen = outbound_links.setdefault(href, set())
                                 if url not in already_seen:
@@ -124,7 +119,6 @@ def crawl_site(start_url, domain, session_id):
                 broken_links.setdefault(url, set()).add(url)
                 state["logs"].append(f"❌ Failed to crawl: {url} (found on {url})")
 
-        # State updates for frontend/export
         state["visited"] = list(visited)
         state["outbound_links"] = {k: list(v) for k, v in outbound_links.items()}
         state["broken_links"] = {k: list(v) for k, v in broken_links.items()}
@@ -147,19 +141,16 @@ def start_crawl():
     parsed = urlparse(url)
     domain = normalize_domain(parsed.netloc)
     if not domain:
-        # Handle cases where netloc is empty (bare domains)
         domain = normalize_domain(urlparse("https://" + input_url).netloc)
         url = "https://" + domain
     session_id = session.get("sid") or str(time.time()) + str(os.getpid())
     session["sid"] = session_id
 
-    # 1. DNS existence check
     try:
         socket.gethostbyname(domain)
     except socket.error:
         return jsonify({"status": "error", "msg": "❌ Domain does not exist or is unreachable!"}), 400
 
-    # 2. Setup crawl state
     crawl_states[session_id] = {
         "logs": [],
         "progress": 0,
@@ -173,8 +164,6 @@ def start_crawl():
         "domain": domain,
         "max_progress_seen": 0
     }
-
-    # Optionally, get favicon for the UI
     favicon_url = get_favicon_url(domain)
     crawl_states[session_id]["favicon_url"] = favicon_url
 
