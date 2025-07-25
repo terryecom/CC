@@ -154,6 +154,8 @@ def index():
 @app.route("/start_crawl", methods=["POST"])
 def start_crawl():
     url = request.form.get("url", "").strip()
+    if not url:
+        return jsonify({"status": "error", "msg": "please enter a URL"}), 400
     if not url.startswith("http"):
         url = "https://" + url
     parsed = urlparse(url)
