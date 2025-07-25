@@ -75,13 +75,7 @@
                     </div>
                 </div>
             </div>
-            <!-- Domain Info Panel (filled by JS) -->
-            <div class="card border-0 shadow-sm mb-4" id="domain-info-panel" style="display:none;">
-                <div class="card-header bg-light fw-bold">Domain Information</div>
-                <div class="card-body" id="domain-info-content">
-                    <!-- JS fills this with WHOIS/DNS/SSL details -->
-                </div>
-            </div>
+            <!-- (No domain info panel: removed) -->
         </div>
     </div>
 </div>
@@ -164,8 +158,6 @@ const progressBar = document.getElementById('progress-bar');
 const exportBtn = document.getElementById('export-btn');
 const cancelBtn = document.getElementById('cancel-btn');
 const pagesScanned = document.getElementById('pages-scanned');
-const domainInfoPanel = document.getElementById('domain-info-panel');
-const domainInfoContent = document.getElementById('domain-info-content');
 
 let polling = null, finished = false;
 
@@ -177,8 +169,6 @@ crawlForm.onsubmit = function(e) {
     exportBtn.disabled = true;
     cancelBtn.disabled = false;
     pagesScanned.innerText = '';
-    domainInfoPanel.style.display = 'none';
-    domainInfoContent.innerHTML = '';
     finished = false;
     const url = document.getElementById('url').value.trim();
     fetch("/start_crawl", {
@@ -187,7 +177,6 @@ crawlForm.onsubmit = function(e) {
         headers: {'Content-Type': 'application/x-www-form-urlencoded'}
     }).then(resp => resp.json()).then(data => {
         if (data.status === "started") {
-            if (data.domain_info) showDomainInfo(data.domain_info);
             pollProgress();
         } else if (data.status === "error") {
             resultBox.innerHTML = '<span class="text-danger">'+data.msg+'</span>';
@@ -208,7 +197,6 @@ function pollProgress() {
         progressBar.style.width = prog+"%";
         progressBar.innerText = prog+"%";
         pagesScanned.innerText = data.pages_scanned ? ("Pages scanned: " + data.pages_scanned) : "";
-        if (data.domain_info) showDomainInfo(data.domain_info);
         if (!data.finished) {
             polling = setTimeout(pollProgress, 1100);
             exportBtn.disabled = true;
@@ -228,20 +216,6 @@ cancelBtn.onclick = function() {
 exportBtn.onclick = function() {
     window.location = "/export";
 };
-
-function showDomainInfo(info) {
-    if (!info || !info.domain) { domainInfoPanel.style.display = 'none'; return; }
-    let html = `
-        <div><b>Domain:</b> ${info.domain}</div>
-        <div><b>Registrar:</b> ${info.registrar}</div>
-        <div><b>Organization:</b> ${info.org || 'Unknown'}</div>
-        <div><b>Created:</b> ${info.created}</div>
-        <div><b>Expires:</b> ${info.expires}</div>
-        <div><b>Nameservers:</b> ${(info.nameservers||[]).join(', ')}</div>
-    `;
-    domainInfoContent.innerHTML = html;
-    domainInfoPanel.style.display = 'block';
-}
 </script>
 </body>
 </html>
