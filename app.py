@@ -29,10 +29,32 @@ def get_domain_info(domain):
         created = w.creation_date
         if isinstance(created, list):
             created = created[0]
+        updated = w.updated_date
+        if isinstance(updated, list):
+            updated = updated[0]
         registrar = w.registrar
-        return str(created) if created else "Unknown", registrar if registrar else "Unknown"
+        nameservers = w.name_servers
+        if isinstance(nameservers, str):
+            nameservers = [nameservers]
+        elif nameservers is None:
+            nameservers = []
+        # Remove blanks/empties and normalize case
+        nameservers = [str(ns).strip() for ns in nameservers if ns]
+        return {
+            "domain": domain,
+            "created": str(created) if created else "Unknown",
+            "updated": str(updated) if updated else "Unknown",
+            "registrar": registrar if registrar else "Unknown",
+            "nameservers": nameservers if nameservers else ["Unknown"]
+        }
     except Exception:
-        return "Unknown", "Unknown"
+        return {
+            "domain": domain,
+            "created": "Unknown",
+            "updated": "Unknown",
+            "registrar": "Unknown",
+            "nameservers": ["Unknown"]
+        }
 
 def crawl_site(start_url, domain, session_id):
     state = crawl_states[session_id]
@@ -146,8 +168,7 @@ def start_crawl():
         return jsonify({"status": "error", "msg": "❌ Domain does not exist or is unreachable!"}), 400
 
     # 2. WHOIS info
-    created, registrar = get_domain_info(domain)
-    domain_info = {"created": str(created), "registrar": str(registrar)}
+    domain_info = get_domain_info(domain)
 
     # 3. Setup crawl state
     crawl_states[session_id] = {
@@ -197,14 +218,17 @@ def export():
     state = crawl_states.get(session_id)
     if not state:
         return "No data", 404
+    domain_info = state.get("domain_info", {})
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     domain_clean = state["domain"].replace('.', '_')
     filename = f"crawl_results_{domain_clean}_{timestamp}.txt"
     with open(filename, "w", encoding="utf-8") as f:
         f.write("Terry Ecom Link Checker Results\n")
-        f.write(f"Checked Domain: {state['domain']}\n")
-        f.write(f"Created: {state['domain_info'].get('created')}\n")
-        f.write(f"Registrar: {state['domain_info'].get('registrar')}\n")
+        f.write(f"Checked Domain: {domain_info.get('domain', state['domain'])}\n")
+        f.write(f"Created: {domain_info.get('created')}\n")
+        f.write(f"Updated: {domain_info.get('updated')}\n")
+        f.write(f"Registrar: {domain_info.get('registrar')}\n")
+        f.write(f"Nameservers: {', '.join(domain_info.get('nameservers', []))}\n")
         f.write(f"Timestamp: {timestamp}\n\n")
         f.write("External/Malformed Mailto Links (and where found):\n")
         for link, sources in sorted(state["outbound_links"].items()):
