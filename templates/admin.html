@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <h2>Admin Dashboard</h2>
+    <a href="/admin-logout" class="btn btn-sm btn-outline-danger float-end">Logout</a>
+    <h4>Stats</h4>
+    <ul>
+        <li>Total users: {{user_count}}</li>
+        <li>Total crawls: {{crawl_count}}</li>
+    </ul>
+    <h5>Recent Users</h5>
+    <table class="table table-sm">
+      <tr><th>Email</th><th>Verified</th><th>Created</th><th>Last Login</th></tr>
+      {% for u in users %}
+      <tr>
+        <td>{{u[0]}}</td>
+        <td>{{'Yes' if u[1] else 'No'}}</td>
+        <td>{{u[3]}}</td>
+        <td>{{u[2] or ''}}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <h5>Recent Crawl Logs</h5>
+    <table class="table table-sm">
+      <tr><th>User Email</th><th>Domain</th><th>Date</th></tr>
+      {% for c in crawl_logs %}
+      <tr><td>{{c[0]}}</td><td>{{c[1]}}</td><td>{{c[2]}}</td></tr>
+      {% endfor %}
+    </table>
+    <h5>Recent Feature/Bug Reports</h5>
+    <table class="table table-sm">
+      <tr><th>Name</th><th>Email</th><th>Message</th><th>Submitted</th></tr>
+      {% for f in feature_reports %}
+      <tr>
+        <td>{{f[1]}}</td>
+        <td>{{f[2]}}</td>
+        <td>{{f[3]}}</td>
+        <td>{{f[4]}}</td>
+      </tr>
+      {% endfor %}
+    </table>
+</div>
+{% endblock %}
