@@ -4,91 +4,120 @@ import time
 import socket
 import sqlite3
 import secrets
-from datetime import datetime
 from urllib.parse import urlparse, urljoin, urldefrag
-
+from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from flask import (
-    Flask, render_template, request, jsonify, send_file, session,
-    redirect, url_for, flash
+    Flask, render_template, request, jsonify, send_file, session, redirect, url_for, flash
 )
 from flask_login import (
-    LoginManager, login_user, logout_user, login_required, current_user, UserMixin
+    LoginManager, login_user, logout_user, login_required, UserMixin, current_user
 )
-from markupsafe import Markup
 
-# === Flask Setup ===
+# ----------------------- SETTINGS & SECRETS --------------------------
 app = Flask(__name__)
-app.secret_key = os.environ.get('FLASK_SECRET', secrets.token_hex(16))
-
-# === Config ===
-ADMIN_EMAIL = "terry@terryecom.com"
-ADMIN_PASSWORD = "Aph180912!!!"
-LOGO_URL = "https://terryecom.com/LClogo.png"
-FAVICON_URL = "https://terryecom.com/favi.ico"
+app.secret_key = os.environ.get('FLASK_SECRET', 'terry_ecom_linkchecker')
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "terry@terryecom.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "CHANGEME")
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
 APP_URL = os.environ.get("APP_URL", "https://linky-ex7b.onrender.com")
 
-# === Login Setup ===
-login_manager = LoginManager()
-login_manager.init_app(app)
+LOGO_URL = "https://terryecom.com/LClogo.png"
+FAVICON_URL = "https://terryecom.com/favi.ico"
 
-# === DB Setup (sqlite) ===
-DB = "users.db"
-def db_connect():
-    return sqlite3.connect(DB, check_same_thread=False)
-
-def init_db():
-    with db_connect() as con:
-        con.execute('''CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL,
-            verified INTEGER DEFAULT 0,
-            verify_token TEXT,
-            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )''')
-
-# === User Loader ===
-class User(UserMixin):
-    def __init__(self, id, name, email, password, verified):
-        self.id = id
-        self.name = name
-        self.email = email
-        self.password = password
-        self.verified = verified
-
-    @staticmethod
-    def get(email):
-        con = db_connect()
-        cur = con.cursor()
-        cur.execute("SELECT * FROM users WHERE email = ?", (email,))
-        row = cur.fetchone()
-        if row:
-            return User(*row[:5])
-        return None
-
-@login_manager.user_loader
-def load_user(user_id):
-    con = db_connect()
-    cur = con.cursor()
-    cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-    row = cur.fetchone()
-    if row:
-        return User(*row[:5])
-    return None
-
-# === Crawler Setup ===
 EXCLUDED_DOMAINS = [
     'g.co', 'facebook.com', 'instagram.com', 'x.com', 'twitter.com',
     'pinterest.com', 'shopify.com', 'edpb.europa.eu'
 ]
 crawl_states = {}
 
-# === Helpers ===
+# --------------------- USER MODEL & DATABASE -------------------------
+
+DATABASE = 'users.db'
+
+class User(UserMixin):
+    def __init__(self, id_, email, password, verified):
+        self.id = id_
+        self.email = email
+        self.password = password
+        self.verified = verified
+
+def get_db():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE,
+            password TEXT,
+            verified INTEGER,
+            verify_token TEXT
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS usage_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT,
+            action TEXT,
+            ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+
+@login_manager.user_loader
+def load_user(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return User(row["id"], row["email"], row["password"], row["verified"])
+    return None
+
+# ------------------------- EMAIL (BREVO) ----------------------------
+
+def send_email(to, subject, html_content):
+    if not BREVO_API_KEY:
+        print("Brevo API key missing. Email not sent.")
+        return False
+    try:
+        resp = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key": BREVO_API_KEY,
+                "accept": "application/json",
+                "content-type": "application/json"
+            },
+            json={
+                "sender": {"name": "Linky", "email": ADMIN_EMAIL},
+                "to": [{"email": to}],
+                "subject": subject,
+                "htmlContent": html_content
+            }
+        )
+        return resp.status_code == 201
+    except Exception as e:
+        print("Email send error:", e)
+        return False
+
+# ---------------------- DOMAIN & CRAWLER UTILS ----------------------
+
 def normalize_domain(domain):
-    domain = domain.lower()
+    domain = domain.lower().strip()
     if domain.startswith("www."):
         domain = domain[4:]
     return domain
@@ -97,42 +126,29 @@ def sanitize_input_url(input_url):
     url = input_url.strip()
     if not url:
         return ""
+    # Add https:// if not present
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
+    # urlparse fix
     parsed = urlparse(url)
     if not parsed.netloc:
         url = "https://" + parsed.path
-    return url
+    parsed = urlparse(url)
+    # Ensure netloc is present
+    if not parsed.netloc:
+        return ""
+    return parsed.geturl()
 
 def get_favicon_url(domain):
     return f"https://{domain}/favicon.ico"
-
-def send_brevo_email(to, subject, html, text):
-    api_key = os.environ.get("BREVO_API_KEY")
-    if not api_key:
-        print("BREVO_API_KEY not set!")
-        return
-    data = {
-        "sender": {"name": "Link Checker", "email": ADMIN_EMAIL},
-        "to": [{"email": to}],
-        "subject": subject,
-        "htmlContent": html,
-        "textContent": text,
-    }
-    requests.post(
-        "https://api.brevo.com/v3/smtp/email",
-        json=data,
-        headers={"api-key": api_key, "Content-Type": "application/json"},
-        timeout=15
-    )
 
 def crawl_site(start_url, domain, session_id):
     state = crawl_states[session_id]
     state["logs"].append(f"🌐 Starting crawl: {start_url}")
     visited = set()
     to_visit = [start_url]
-    outbound_links = {}
-    broken_links = {}
+    outbound_links = {}  # url -> set(source_pages)
+    broken_links = {}    # url -> set(source_pages)
     pages_scanned = 0
     state["max_progress_seen"] = 0
     should_cancel = lambda: crawl_states.get(session_id, {}).get("cancel", False)
@@ -150,6 +166,7 @@ def crawl_site(start_url, domain, session_id):
                 visited.add(url)
                 state["logs"].append(f"✅ Scanned: {url}")
 
+                # Scan <a> tags for links
                 for a in soup.find_all("a", href=True):
                     href = a['href'].strip()
                     if href == "#" or href.lower().startswith(("javascript:", "tel:")):
@@ -210,61 +227,51 @@ def crawl_site(start_url, domain, session_id):
     state["progress"] = 100
     state["finished"] = True
 
-# === Routes ===
+# ---------------------------- ROUTES --------------------------------
 
-@app.before_request
-def ensure_db():
-    if not os.path.exists(DB):
-        init_db()
-
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
-    return render_template("index.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+    favicon = FAVICON_URL
+    logo = LOGO_URL
+    return render_template("index.html", favicon=favicon, logo=logo)
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
-        name = request.form["name"].strip()
         email = request.form["email"].strip().lower()
         password = request.form["password"]
-        con = db_connect()
-        cur = con.cursor()
-        cur.execute("SELECT id FROM users WHERE email=?", (email,))
-        if cur.fetchone():
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE email = ?", (email,))
+        if c.fetchone():
             flash("Email already registered.", "danger")
+            conn.close()
             return redirect(url_for("signup"))
-        verify_token = secrets.token_urlsafe(24)
-        cur.execute(
-            "INSERT INTO users (name, email, password, verify_token) VALUES (?,?,?,?)",
-            (name, email, password, verify_token)
-        )
-        con.commit()
-        # Send verification
-        verify_link = f"{APP_URL}/verify?email={email}&token={verify_token}"
-        send_brevo_email(
-            to=email,
-            subject="Verify your account",
-            html=f"<p>Click to verify: <a href='{verify_link}'>{verify_link}</a></p>",
-            text=f"Click to verify: {verify_link}"
-        )
-        flash("Check your email to verify your account!", "info")
+        token = secrets.token_hex(16)
+        c.execute("INSERT INTO users (email, password, verified, verify_token) VALUES (?, ?, 0, ?)", (email, password, token))
+        conn.commit()
+        conn.close()
+        verify_link = f"{APP_URL}/verify/{token}"
+        send_email(email, "Verify your account", f"Please verify your account: <a href='{verify_link}'>{verify_link}</a>")
+        flash("Signup successful! Check your email for verification.", "success")
         return redirect(url_for("login"))
-    return render_template("signup.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+    favicon = FAVICON_URL
+    logo = LOGO_URL
+    return render_template("signup.html", favicon=favicon, logo=logo)
 
-@app.route("/verify")
-def verify():
-    email = request.args.get("email", "")
-    token = request.args.get("token", "")
-    con = db_connect()
-    cur = con.cursor()
-    cur.execute("SELECT id, verify_token FROM users WHERE email=?", (email,))
-    row = cur.fetchone()
-    if not row or row[1] != token:
-        flash("Invalid verification link.", "danger")
-        return redirect(url_for("login"))
-    cur.execute("UPDATE users SET verified=1 WHERE id=?", (row[0],))
-    con.commit()
-    flash("Account verified. Please log in.", "success")
+@app.route("/verify/<token>")
+def verify(token):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE verify_token = ?", (token,))
+    user = c.fetchone()
+    if user:
+        c.execute("UPDATE users SET verified = 1, verify_token = NULL WHERE id = ?", (user["id"],))
+        conn.commit()
+        flash("Email verified! You may now login.", "success")
+    else:
+        flash("Invalid or expired verification token.", "danger")
+    conn.close()
     return redirect(url_for("login"))
 
 @app.route("/login", methods=["GET", "POST"])
@@ -272,22 +279,48 @@ def login():
     if request.method == "POST":
         email = request.form["email"].strip().lower()
         password = request.form["password"]
-        user = User.get(email)
-        if not user or user.password != password:
-            flash("Invalid credentials.", "danger")
-            return redirect(url_for("login"))
-        if not user.verified:
-            flash("Please verify your email.", "warning")
-            return redirect(url_for("login"))
-        login_user(user)
-        return redirect(url_for("index"))
-    return render_template("login.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+        if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
+            session["admin"] = True
+            return redirect(url_for("admin_dashboard"))
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE email = ?", (email,))
+        user = c.fetchone()
+        conn.close()
+        if user and user["password"] == password and user["verified"]:
+            login_user(User(user["id"], user["email"], user["password"], user["verified"]))
+            return redirect(url_for("index"))
+        elif user and not user["verified"]:
+            flash("Account not verified. Check your email.", "danger")
+        else:
+            flash("Login failed.", "danger")
+    favicon = FAVICON_URL
+    logo = LOGO_URL
+    return render_template("login.html", favicon=favicon, logo=logo)
 
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
+    session.clear()
+    flash("Logged out.", "success")
     return redirect(url_for("login"))
+
+@app.route("/feedback", methods=["POST"])
+def feedback():
+    name = request.form.get("name", "")
+    email = request.form.get("email", "")
+    msg = request.form.get("message", "")
+    subject = "Linky Feature Request / Bug Report"
+    html = f"""
+        <b>Name:</b> {name}<br>
+        <b>Email:</b> {email}<br>
+        <b>Message:</b><br>
+        {msg}
+    """
+    send_email(ADMIN_EMAIL, subject, html)
+    flash("Feedback sent! Thank you.", "success")
+    return redirect(url_for("index"))
 
 @app.route("/start_crawl", methods=["POST"])
 @login_required
@@ -295,7 +328,7 @@ def start_crawl():
     input_url = request.form.get("url", "").strip()
     url = sanitize_input_url(input_url)
     if not url:
-        return jsonify({"status": "error", "msg": "❌ Please enter a URL."}), 400
+        return jsonify({"status": "error", "msg": "❌ Please enter a valid URL."}), 400
 
     parsed = urlparse(url)
     domain = normalize_domain(parsed.netloc)
@@ -326,10 +359,17 @@ def start_crawl():
     favicon_url = get_favicon_url(domain)
     crawl_states[session_id]["favicon_url"] = favicon_url
 
+    # Log usage
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO usage_log (user_email, action) VALUES (?, ?)", (current_user.email, f"crawl:{domain}"))
+    conn.commit()
+    conn.close()
+
     threading.Thread(target=crawl_site, args=(url, domain, session_id), daemon=True).start()
     return jsonify({"status": "started", "favicon_url": favicon_url})
 
-@app.route("/progress")
+@app.route("/progress", methods=["GET"])
 @login_required
 def progress():
     session_id = session.get("sid")
@@ -354,7 +394,7 @@ def cancel():
         state["logs"].append("⏹️ Crawl cancelled by user.")
     return jsonify({"status": "cancelled"})
 
-@app.route("/export")
+@app.route("/export", methods=["GET"])
 @login_required
 def export():
     session_id = session.get("sid")
@@ -378,60 +418,30 @@ def export():
                 f.write(f"{link} (found on {src})\n")
     return send_file(filename, as_attachment=True)
 
-# === Admin Only ===
+# ------------------------- ADMIN DASHBOARD --------------------------
+
 @app.route("/admin", methods=["GET", "POST"])
-def admin():
-    # Secret admin login
+def admin_dashboard():
     if not session.get("admin"):
-        if request.method == "POST":
-            email = request.form.get("email")
-            password = request.form.get("password")
-            if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
-                session["admin"] = True
-            else:
-                flash("Invalid admin credentials.", "danger")
-                return redirect(url_for("admin"))
-        else:
-            return render_template("admin_login.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
-    # Stats page (very simple!)
-    con = db_connect()
-    cur = con.cursor()
-    cur.execute("SELECT COUNT(*) FROM users")
-    total_users = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM users WHERE verified=1")
-    verified = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM users WHERE verified=0")
-    unverified = cur.fetchone()[0]
-    return render_template("admin_stats.html", total_users=total_users, verified=verified, unverified=unverified, logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+        return redirect(url_for("login"))
+    # Show user stats & usage
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT email, verified FROM users")
+    users = c.fetchall()
+    c.execute("SELECT * FROM usage_log ORDER BY ts DESC LIMIT 100")
+    logs = c.fetchall()
+    conn.close()
+    favicon = FAVICON_URL
+    logo = LOGO_URL
+    return render_template("admin.html", users=users, logs=logs, favicon=favicon, logo=logo)
 
-@app.route("/feature", methods=["GET", "POST"])
-def feature():
-    if request.method == "POST":
-        name = request.form.get("name", "")
-        email = request.form.get("email", "")
-        message = request.form.get("message", "")
-        subj = "[LINKY REPORT] Feature/Bug"
-        send_brevo_email(
-            to=ADMIN_EMAIL,
-            subject=subj,
-            html=f"<b>From:</b> {name} ({email})<br><pre>{Markup.escape(message)}</pre>",
-            text=f"From: {name} ({email})\n\n{message}"
-        )
-        flash("Your feedback has been sent!", "success")
-        return redirect(url_for("feature"))
-    return render_template("feature.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("admin", None)
+    return redirect(url_for("login"))
 
-# === Minimal template stubs ===
-@app.context_processor
-def inject_brand():
-    return dict(logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+# --------------------------- RUN APP --------------------------------
 
-@app.errorhandler(404)
-def page_not_found(e):
-    return f"<h1>404 Not Found</h1>", 404
-
-# === Run app ===
 if __name__ == "__main__":
-    if not os.path.exists(DB):
-        init_db()
     app.run(debug=True)
