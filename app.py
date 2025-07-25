@@ -1,8 +1,3 @@
-import flask
-print("=== DEBUG: Flask version loaded at runtime:", flask.__version__)
-print("=== DEBUG: Flask module path:", flask.__file__)
-
-
 import os
 import threading
 import time
@@ -22,10 +17,6 @@ EXCLUDED_DOMAINS = [
     'pinterest.com', 'shopify.com', 'edpb.europa.eu'
 ]
 crawl_states = {}
-
-@app.before_first_request
-def before_first_request():
-    pass  # Placeholder for DB init, etc.
 
 def normalize_domain(domain):
     domain = domain.lower()
