@@ -17,7 +17,16 @@
         }
         #domainInfoPanel {
             min-width: 260px;
-            max-width: 340px;
+            max-width: 360px;
+        }
+        #domainFavicon {
+            width: 36px;
+            height: 36px;
+            margin-right: 10px;
+            border-radius: 7px;
+            border: 1px solid #ddd;
+            background: #fff;
+            vertical-align: middle;
         }
         @media (max-width: 900px) {
             #domainInfoPanel { max-width: 100%; min-width: 0; margin-top: 2rem;}
@@ -62,7 +71,8 @@
         <!-- Right: Domain Info Panel -->
         <div class="col-lg-4 col-12 mt-lg-0 mt-4">
             <div id="domainInfoPanel" class="card shadow" style="display:none;">
-                <div class="card-header bg-secondary text-white">
+                <div class="card-header bg-secondary text-white d-flex align-items-center">
+                    <img id="domainFavicon" src="" alt="Favicon" onerror="this.style.display='none'">
                     <strong>Domain Info</strong>
                 </div>
                 <div class="card-body">
@@ -70,6 +80,10 @@
                         <li><strong>Domain:</strong> <span id="domainInfoDomain"></span></li>
                         <li><strong>Created:</strong> <span id="domainInfoCreated"></span></li>
                         <li><strong>Registrar:</strong> <span id="domainInfoRegistrar"></span></li>
+                        <li><strong>Updated:</strong> <span id="domainInfoUpdated"></span></li>
+                        <li><strong>Nameservers:</strong>
+                            <ul id="domainInfoNameservers" class="mb-0 ps-2" style="font-size:14px"></ul>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -100,10 +114,38 @@
         document.getElementById("statusLabel").innerText = "Pages Scanned: " + pages;
     }
 
-    function showDomainInfo(domain, created, registrar) {
+    function showDomainInfo(domain, created, registrar, updated, nameservers) {
         document.getElementById("domainInfoDomain").innerText = domain || '';
         document.getElementById("domainInfoCreated").innerText = created || 'Unknown';
         document.getElementById("domainInfoRegistrar").innerText = registrar || 'Unknown';
+        document.getElementById("domainInfoUpdated").innerText = updated || 'Unknown';
+
+        let nsList = document.getElementById("domainInfoNameservers");
+        nsList.innerHTML = '';
+        if (Array.isArray(nameservers)) {
+            nameservers.forEach(ns => {
+                let li = document.createElement("li");
+                li.textContent = ns;
+                nsList.appendChild(li);
+            });
+        } else if (nameservers) {
+            let li = document.createElement("li");
+            li.textContent = nameservers;
+            nsList.appendChild(li);
+        } else {
+            nsList.innerHTML = '<li>Unknown</li>';
+        }
+
+        // Show favicon
+        let baseDomain = (domain || '').replace(/^www\./, '');
+        if (baseDomain) {
+            document.getElementById("domainFavicon").src =
+                "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(baseDomain);
+            document.getElementById("domainFavicon").style.display = '';
+        } else {
+            document.getElementById("domainFavicon").style.display = 'none';
+        }
+
         document.getElementById("domainInfoPanel").style.display = '';
         document.getElementById("domainInfoErrorBox").style.display = 'none';
     }
@@ -120,9 +162,14 @@
             updateProgress(data.progress);
             updateStatus(data.pages_scanned);
             let info = data.domain_info || {};
-            if (info.created || info.registrar || info.domain) {
-                // Show right-panel info
-                showDomainInfo(info.domain || lastDomainInfo.domain, info.created, info.registrar);
+            if (info.created || info.registrar || info.domain || info.updated || info.nameservers) {
+                showDomainInfo(
+                    info.domain || lastDomainInfo.domain,
+                    info.created,
+                    info.registrar,
+                    info.updated,
+                    info.nameservers
+                );
                 lastDomainInfo = {...lastDomainInfo, ...info};
             }
             if(data.finished) {
@@ -130,3 +177,59 @@
                 crawlInterval = null;
                 document.getElementById("startBtn").disabled = false;
                 document.getElementById("cancelBtn").disabled = true;
+            }
+        });
+    }
+
+    document.getElementById("startBtn").onclick = function() {
+        let url = document.getElementById("urlInput").value.trim();
+        if(!url) return alert("Please enter a website URL.");
+        document.getElementById("startBtn").disabled = true;
+        document.getElementById("cancelBtn").disabled = false;
+        document.getElementById("logArea").value = '';
+        document.getElementById("domainInfoPanel").style.display = 'none';
+        document.getElementById("domainInfoErrorBox").style.display = 'none';
+        fetch('/start_crawl', {
+            method: 'POST',
+            body: new URLSearchParams({url})
+        })
+        .then(resp => resp.json().then(data => ({status: resp.status, body: data})))
+        .then(data => {
+            if(data.status !== 200) {
+                document.getElementById("startBtn").disabled = false;
+                document.getElementById("cancelBtn").disabled = true;
+                showDomainError(data.body.msg);
+                return;
+            }
+            // Show right panel domain info
+            let info = data.body.domain_info || {};
+            showDomainInfo(
+                info.domain || url,
+                info.created,
+                info.registrar,
+                info.updated,
+                info.nameservers
+            );
+            lastDomainInfo = {
+                domain: info.domain || url,
+                created: info.created,
+                registrar: info.registrar,
+                updated: info.updated,
+                nameservers: info.nameservers
+            };
+            pollProgress();
+            crawlInterval = setInterval(pollProgress, 1200);
+        });
+    };
+    document.getElementById("cancelBtn").onclick = function() {
+        fetch('/cancel', {method:'POST'}).then(()=>{
+            document.getElementById("cancelBtn").disabled = true;
+        });
+    };
+    document.getElementById("exportBtn").onclick = function() {
+        window.open('/export','_blank');
+    };
+    document.getElementById("cancelBtn").disabled = true;
+</script>
+</body>
+</html>
