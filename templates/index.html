@@ -1,245 +1,497 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Terry Ecom Link Checker</title>
-    <meta name="viewport" content="width=900, initial-scale=1">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-    <style>
-        body { background: #f7f7fb;}
-        .main-card { border-radius: 18px; box-shadow: 0 2px 14px rgba(28,30,34,0.07);}
-        #logArea {
-            height: 320px;
-            resize: none;
-            font-family: monospace;
-            font-size: 14px;
-            background: #f9f9fb;
-        }
-        .contact-btns button {
-            min-width: 130px;
-            border-radius: 14px;
-        }
-        #domainInfoPanel {
-            min-width: 250px;
-            max-width: 340px;
-            border-radius: 16px;
-            box-shadow: 0 1px 8px rgba(45,56,80,0.09);
-            background: #fff;
-            border: 1.5px solid #f1f1f1;
-        }
-        #domainFavicon {
-            width: 36px;
-            height: 36px;
-            margin-right: 10px;
-            border-radius: 8px;
-            border: 1.5px solid #f1f1f1;
-            background: #fff;
-            vertical-align: middle;
-        }
-        .progress { background: #ebedf0;}
-        .main-actions { margin-top: 1rem;}
-        @media (max-width: 900px) {
-            #domainInfoPanel { max-width: 100%; min-width: 0; margin-top: 2rem;}
-        }
-    </style>
-</head>
-<body>
-<div class="container py-4">
-    <h2 class="mb-4 fw-semibold">Terry Ecom Link Checker</h2>
-    <div class="row gx-5 gy-4">
-        <!-- Left: Main Panel -->
-        <div class="col-lg-8 col-12">
-            <div class="card main-card p-4 mb-3">
-                <div class="mb-3 row">
-                    <label for="urlInput" class="col-sm-3 col-form-label fw-semibold">Website URL:</label>
-                    <div class="col-sm-9">
-                        <input type="text" id="urlInput" class="form-control rounded-3" placeholder="https://yourshopifystore.com">
-                    </div>
-                </div>
-                <div class="main-actions d-flex flex-wrap gap-2 mb-3">
-                    <button id="startBtn" class="btn btn-success px-4 rounded-3 fw-semibold">Start Crawl</button>
-                    <button id="cancelBtn" class="btn btn-danger px-4 rounded-3 fw-semibold">Cancel</button>
-                    <button id="exportBtn" class="btn btn-primary px-4 rounded-3 fw-semibold">Export</button>
-                </div>
-                <textarea id="logArea" class="form-control mb-3 rounded-3" readonly></textarea>
-                <div class="mb-2">
-                    <div class="progress" style="height: 26px;">
-                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success fw-semibold" style="width:0%">0%</div>
-                    </div>
-                </div>
-                <div>
-                    <span id="statusLabel" class="text-muted small">Pages Scanned: 0</span>
-                </div>
-            </div>
-            <div class="contact-btns d-flex flex-wrap gap-2 mt-2">
-                <button onclick="window.open('https://www.terryecom.com','_blank')" class="btn btn-outline-secondary">🌐 Website</button>
-                <button onclick="window.open('mailto:terry@terryecom.com','_blank')" class="btn btn-outline-secondary">✉️ Email</button>
-                <button onclick="window.open('https://www.instagram.com/terryecom/','_blank')" class="btn btn-outline-secondary">📷 Instagram</button>
-                <button onclick="window.open('https://x.com/TerryEcom','_blank')" class="btn btn-outline-secondary">𝕏 Twitter</button>
-            </div>
-        </div>
-        <!-- Right: Domain Info Panel -->
-        <div class="col-lg-4 col-12">
-            <div id="domainInfoPanel" class="card p-0 shadow-sm" style="display:none;">
-                <div class="card-header bg-light border-0 rounded-top-3 d-flex align-items-center" style="padding-bottom:.5rem;">
-                    <img id="domainFavicon" src="" alt="Favicon" onerror="this.style.display='none'">
-                    <span class="fw-semibold fs-5">Domain Info</span>
-                </div>
-                <div class="card-body py-2">
-                    <ul class="list-unstyled mb-0 ps-1">
-                        <li class="mb-2"><strong>Domain:</strong> <span id="domainInfoDomain"></span></li>
-                        <li class="mb-2"><strong>Created:</strong> <span id="domainInfoCreated"></span></li>
-                        <li class="mb-2"><strong>Updated:</strong> <span id="domainInfoUpdated"></span></li>
-                        <li class="mb-2"><strong>Registrar:</strong> <span id="domainInfoRegistrar"></span></li>
-                        <li class="mb-1"><strong>Nameservers:</strong>
-                            <ul id="domainInfoNameservers" class="mb-0 ps-3" style="font-size:14px"></ul>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-            <!-- Error box -->
-            <div id="domainInfoErrorBox" class="alert alert-danger py-2 px-3 mt-4" style="display:none">
-                <span id="domainInfoErrorText"></span>
-            </div>
-        </div>
-    </div>
-</div>
-<script>
-    let crawlInterval = null;
-    let lastDomainInfo = {};
+import threading
+import time
+import socket
+import ssl
+import os
+from urllib.parse import urlparse, urljoin, urldefrag
+from datetime import datetime
 
-    function updateLogs(logs) {
-        let logArea = document.getElementById("logArea");
-        logArea.value = logs.join('\n');
-        logArea.scrollTop = logArea.scrollHeight;
+import requests
+import whois
+from bs4 import BeautifulSoup
+from flask import Flask, render_template, request, jsonify, send_file, session
+import dns.resolver
+
+app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET', 'terry_ecom_linkchecker')
+
+EXCLUDED_DOMAINS = [
+    'g.co', 'facebook.com', 'instagram.com', 'x.com', 'twitter.com',
+    'pinterest.com', 'shopify.com', 'edpb.europa.eu'
+]
+
+crawl_states = {}
+
+def normalize_domain(domain):
+    return domain.lower().replace("www.", "")
+
+def get_domain_info(domain):
+    # WHOIS info with robust parsing
+    try:
+        w = whois.whois(domain)
+        created = w.creation_date
+        if isinstance(created, list): created = created[0]
+        updated = w.updated_date
+        if isinstance(updated, list): updated = updated[0]
+        expires = w.expiration_date
+        if isinstance(expires, list): expires = expires[0]
+        registrar = w.registrar
+        org = w.org if hasattr(w, "org") else None
+        nameservers = w.name_servers
+        if isinstance(nameservers, str):
+            nameservers = [nameservers]
+        elif nameservers is None:
+            nameservers = []
+        nameservers = [str(ns).strip() for ns in nameservers if ns]
+        return {
+            "domain": domain,
+            "created": str(created) if created else "Unknown",
+            "updated": str(updated) if updated else "Unknown",
+            "expires": str(expires) if expires else "Unknown",
+            "registrar": registrar if registrar else "Unknown",
+            "org": org if org else "Unknown",
+            "nameservers": nameservers if nameservers else ["Unknown"]
+        }
+    except Exception:
+        return {
+            "domain": domain,
+            "created": "Unknown",
+            "updated": "Unknown",
+            "expires": "Unknown",
+            "registrar": "Unknown",
+            "org": "Unknown",
+            "nameservers": ["Unknown"]
+        }
+
+def get_dns_records(domain):
+    # Returns A, AAAA, MX records
+    try:
+        answers_a = [r.address for r in dns.resolver.resolve(domain, 'A', lifetime=5)]
+    except Exception:
+        answers_a = []
+    try:
+        answers_aaaa = [r.address for r in dns.resolver.resolve(domain, 'AAAA', lifetime=5)]
+    except Exception:
+        answers_aaaa = []
+    try:
+        answers_mx = [r.exchange.to_text() for r in dns.resolver.resolve(domain, 'MX', lifetime=5)]
+    except Exception:
+        answers_mx = []
+    return {
+        "A": answers_a,
+        "AAAA": answers_aaaa,
+        "MX": answers_mx
     }
 
-    function updateProgress(progress) {
-        let bar = document.getElementById("progressBar");
-        bar.style.width = progress + "%";
-        bar.innerText = progress + "%";
-    }
-
-    function updateStatus(pages) {
-        document.getElementById("statusLabel").innerText = "Pages Scanned: " + pages;
-    }
-
-    function showDomainInfo(domain, created, registrar, updated, nameservers) {
-        document.getElementById("domainInfoDomain").innerText = domain || '';
-        document.getElementById("domainInfoCreated").innerText = created || 'Unknown';
-        document.getElementById("domainInfoRegistrar").innerText = registrar || 'Unknown';
-        document.getElementById("domainInfoUpdated").innerText = updated || 'Unknown';
-
-        let nsList = document.getElementById("domainInfoNameservers");
-        nsList.innerHTML = '';
-        if (Array.isArray(nameservers)) {
-            nameservers.forEach(ns => {
-                let li = document.createElement("li");
-                li.textContent = ns;
-                nsList.appendChild(li);
-            });
-        } else if (nameservers) {
-            let li = document.createElement("li");
-            li.textContent = nameservers;
-            nsList.appendChild(li);
-        } else {
-            nsList.innerHTML = '<li>Unknown</li>';
+def get_ssl_info(domain):
+    # Checks for SSL, returns (supported, expired, days_left, not_after, subject)
+    context = ssl.create_default_context()
+    try:
+        with socket.create_connection((domain, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+                not_after = cert['notAfter']
+                subject = dict(x[0] for x in cert['subject'])
+                expires = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+                days_left = (expires - datetime.utcnow()).days
+                expired = days_left < 0
+                return {
+                    "ssl_supported": True,
+                    "ssl_expired": expired,
+                    "ssl_days_left": days_left,
+                    "ssl_not_after": not_after,
+                    "ssl_subject": subject.get('commonName', '')
+                }
+    except Exception:
+        return {
+            "ssl_supported": False,
+            "ssl_expired": None,
+            "ssl_days_left": None,
+            "ssl_not_after": None,
+            "ssl_subject": None
         }
 
-        // Show favicon
-        let baseDomain = (domain || '').replace(/^www\./, '');
-        if (baseDomain) {
-            document.getElementById("domainFavicon").src =
-                "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(baseDomain);
-            document.getElementById("domainFavicon").style.display = '';
-        } else {
-            document.getElementById("domainFavicon").style.display = 'none';
-        }
+def get_cdn_info(domain):
+    # Try homepage request, look for CDN headers
+    try:
+        resp = requests.get("https://" + domain, timeout=7)
+    except Exception:
+        try:
+            resp = requests.get("http://" + domain, timeout=7)
+        except Exception:
+            return "Unknown"
+    server = resp.headers.get('server', '').lower()
+    headers = {k.lower():v.lower() for k,v in resp.headers.items()}
+    # Known CDNs
+    if 'cf-cache-status' in headers or 'cloudflare' in server:
+        return "Cloudflare"
+    if 'akamai' in server or 'akamai' in headers.get('x-cache', ''):
+        return "Akamai"
+    if 'fastly' in server or 'fastly' in headers.get('x-served-by', ''):
+        return "Fastly"
+    if 'incapsula' in server:
+        return "Incapsula"
+    if 'stackpath' in server or 'stackpath' in headers.get('x-cdn', ''):
+        return "StackPath"
+    return server.capitalize() if server else "Unknown"
 
-        document.getElementById("domainInfoPanel").style.display = '';
-        document.getElementById("domainInfoErrorBox").style.display = 'none';
+def get_sitemap(domain):
+    url = f"https://{domain}/sitemap.xml"
+    try:
+        resp = requests.get(url, timeout=7)
+        if resp.status_code == 200 and resp.text.strip().startswith('<?xml'):
+            return url
+    except Exception:
+        pass
+    return None
+
+def get_robots(domain):
+    url = f"https://{domain}/robots.txt"
+    try:
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            return resp.text
+    except Exception:
+        pass
+    return None
+
+def is_crawler_disallowed(robots_txt):
+    # Very basic: look for Disallow for all or for our UA
+    if robots_txt:
+        lines = robots_txt.lower().splitlines()
+        user_agent = None
+        disallowed = False
+        for l in lines:
+            if l.startswith("user-agent:"):
+                user_agent = l.split(":",1)[1].strip()
+            elif l.startswith("disallow:"):
+                path = l.split(":",1)[1].strip()
+                if (user_agent in ('*', '', 'python', 'python-requests')) and (path == "/" or path.startswith("/")):
+                    disallowed = True
+        return disallowed
+    return False
+
+def crawl_site(start_url, domain, session_id):
+    state = crawl_states[session_id]
+    state["logs"].append(f"🌐 Starting crawl: {start_url}")
+
+    # --- Get domain-level info up front ---
+    state["summary"] = {}
+    # WHOIS/DNS/SSL/CDN
+    domain_info = get_domain_info(domain)
+    dns_info = get_dns_records(domain)
+    ssl_info = get_ssl_info(domain)
+    cdn = get_cdn_info(domain)
+    sitemap = get_sitemap(domain)
+    robots_txt = get_robots(domain)
+    crawler_disallowed = is_crawler_disallowed(robots_txt)
+
+    state["summary"].update({
+        "domain_info": domain_info,
+        "dns_info": dns_info,
+        "ssl_info": ssl_info,
+        "cdn": cdn,
+        "sitemap": sitemap,
+        "robots_txt": robots_txt,
+        "crawler_disallowed": crawler_disallowed,
+    })
+
+    # --- Crawl site as before, now with images, title/meta, etc ---
+    visited = set()
+    to_visit = [start_url]
+    outbound_links = {}    # url -> set(source_pages)
+    broken_links = {}      # url -> set(source_pages)
+    broken_images = []     # {"img": ..., "page": ...}
+    pages_scanned = 0
+    page_titles = {}       # url -> title
+    meta_descs = {}        # url -> meta description
+
+    state["max_progress_seen"] = 0
+
+    should_cancel = lambda: crawl_states.get(session_id, {}).get("cancel", False)
+
+    while to_visit and not should_cancel():
+        url = to_visit.pop(0)
+        if url not in visited:
+            try:
+                response = requests.get(url, timeout=10)
+                if response.status_code == 404:
+                    broken_links.setdefault(url, set()).add(url)
+                    state["logs"].append(f"❌ 404 Not Found: {url} (found on {url})")
+                    continue
+                soup = BeautifulSoup(response.text, "html.parser")
+                visited.add(url)
+                state["logs"].append(f"✅ Scanned: {url}")
+
+                # Get page title & meta
+                title = soup.title.string.strip() if soup.title and soup.title.string else ""
+                page_titles[url] = title
+                meta = soup.find('meta', attrs={'name': 'description'})
+                meta_desc = meta['content'].strip() if meta and meta.get('content') else ""
+                meta_descs[url] = meta_desc
+
+                # Check images
+                for img in soup.find_all("img", src=True):
+                    img_href = urljoin(url, img['src'].strip())
+                    try:
+                        img_resp = requests.get(img_href, timeout=5)
+                        if img_resp.status_code != 200:
+                            broken_images.append({"img": img_href, "page": url})
+                            state["logs"].append(f"🖼️ Broken image: {img_href} (found on {url})")
+                    except Exception:
+                        broken_images.append({"img": img_href, "page": url})
+                        state["logs"].append(f"🖼️ Broken image: {img_href} (found on {url})")
+
+                # Scan <a> tags
+                for a in soup.find_all("a", href=True):
+                    href = a['href'].strip()
+                    if href == "#" or href.lower().startswith(("javascript:", "tel:")):
+                        continue
+                    if href.startswith("mailto:"):
+                        try:
+                            email = href.split(':',1)[1].split('?',1)[0]
+                            email_domain = email.split('@')[1].lower()
+                            if normalize_domain(email_domain) != domain:
+                                already_seen = outbound_links.setdefault(href, set())
+                                if url not in already_seen:
+                                    already_seen.add(url)
+                                    state["logs"].append(f"📧 External mailto: {href} (found on {url})")
+                        except Exception:
+                            already_seen = outbound_links.setdefault(href, set())
+                            if url not in already_seen:
+                                already_seen.add(url)
+                                state["logs"].append(f"📧 Malformed mailto: {href} (found on {url})")
+                        continue
+
+                    raw_url = urldefrag(urljoin(url, href))[0]
+                    parsed = urlparse(raw_url)
+                    netloc = normalize_domain(parsed.netloc)
+                    normalized_url = parsed._replace(netloc=netloc).geturl()
+
+                    if netloc == "" or domain in netloc:
+                        if normalized_url not in visited and normalized_url not in to_visit:
+                            to_visit.append(normalized_url)
+                    else:
+                        if any(skip in netloc for skip in EXCLUDED_DOMAINS):
+                            continue
+                        outbound_links.setdefault(normalized_url, set()).add(url)
+                        state["logs"].append(f"🔗 Outbound: {normalized_url} (found on {url})")
+                        try:
+                            ext_resp = requests.get(normalized_url, timeout=5)
+                            if ext_resp.status_code == 404:
+                                broken_links.setdefault(normalized_url, set()).add(url)
+                                state["logs"].append(f"❌ 404 External: {normalized_url} (found on {url})")
+                        except Exception:
+                            broken_links.setdefault(normalized_url, set()).add(url)
+                            state["logs"].append(f"❌ Failed to load: {normalized_url} (found on {url})")
+
+                pages_scanned += 1
+                progress = int((pages_scanned / (pages_scanned + len(to_visit))) * 100) if (pages_scanned + len(to_visit)) else 100
+                state["max_progress_seen"] = max(state.get("max_progress_seen", 0), progress)
+                state["progress"] = state["max_progress_seen"]
+                state["pages_scanned"] = pages_scanned
+
+            except Exception:
+                broken_links.setdefault(url, set()).add(url)
+                state["logs"].append(f"❌ Failed to crawl: {url} (found on {url})")
+
+        state["visited"] = list(visited)
+        state["outbound_links"] = {k: list(v) for k, v in outbound_links.items()}
+        state["broken_links"] = {k: list(v) for k, v in broken_links.items()}
+        state["broken_images"] = broken_images
+        state["page_titles"] = page_titles
+        state["meta_descs"] = meta_descs
+
+    # Duplicate Content Detection (simple: same title+meta)
+    duplicate_content = []
+    seen = {}
+    for url, title in page_titles.items():
+        meta = meta_descs.get(url, "")
+        key = (title.strip().lower(), meta.strip().lower())
+        if key in seen:
+            duplicate_content.append((seen[key], url))
+        else:
+            seen[key] = url
+    state["duplicate_content"] = duplicate_content
+
+    # --- End summary ---
+    state["logs"].append("✅ Crawl complete.")
+    num_outbound = len(outbound_links)
+    num_broken = len(broken_links)
+    num_broken_images = len(broken_images)
+    num_dupes = len(duplicate_content)
+    if num_outbound == 0 and num_broken == 0 and num_broken_images == 0 and num_dupes == 0:
+        state["logs"].append("🎉 No incorrect outbound links, 404 errors, broken images, or duplicate content found.")
+    else:
+        state["logs"].append(f"Incorrect Outbound Links: {num_outbound}")
+        state["logs"].append(f"404 Errors: {num_broken}")
+        state["logs"].append(f"Broken Images: {num_broken_images}")
+        state["logs"].append(f"Duplicate Content: {num_dupes}")
+
+    # --- Summary Block ---
+    state["logs"].append("\n=== Summary Report ===")
+    state["logs"].append(f"Sitemap.xml: {'Found' if sitemap else 'Not found'}")
+    if sitemap: state["logs"].append(f" - {sitemap}")
+    state["logs"].append(f"Robots.txt: {'Found' if robots_txt else 'Not found'}")
+    if robots_txt:
+        state["logs"].append("---- robots.txt ----")
+        state["logs"].append(robots_txt[:1000] + ("..." if len(robots_txt)>1000 else ""))
+        state["logs"].append("--------------------")
+        if crawler_disallowed:
+            state["logs"].append("⚠️ Warning: robots.txt may disallow crawling of this site.")
+    state["logs"].append(f"SSL Supported: {'Yes' if ssl_info['ssl_supported'] else 'No'}")
+    if ssl_info['ssl_supported']:
+        if ssl_info['ssl_expired']:
+            state["logs"].append(f"⚠️ SSL Certificate Expired on {ssl_info['ssl_not_after']}")
+        else:
+            state["logs"].append(f"SSL Certificate Valid. Expires: {ssl_info['ssl_not_after']} ({ssl_info['ssl_days_left']} days left)")
+    state["logs"].append(f"CDN: {cdn}")
+    # DNS
+    for typ, recs in dns_info.items():
+        state["logs"].append(f"DNS {typ}: {', '.join(recs) if recs else 'None'}")
+    # WHOIS
+    di = domain_info
+    state["logs"].append(f"Registrar: {di.get('registrar')}")
+    state["logs"].append(f"Org: {di.get('org')}")
+    state["logs"].append(f"Created: {di.get('created')}")
+    state["logs"].append(f"Expires: {di.get('expires')}")
+    state["logs"].append(f"Nameservers: {', '.join(di.get('nameservers', []))}")
+
+    # Broken Images
+    if broken_images:
+        state["logs"].append("Broken images:")
+        for img in broken_images:
+            state["logs"].append(f" - {img['img']} (on {img['page']})")
+    # Duplicates
+    if duplicate_content:
+        state["logs"].append("Duplicate Content Pages (title+meta):")
+        for u1, u2 in duplicate_content:
+            state["logs"].append(f" - {u1} and {u2}")
+
+    state["progress"] = 100
+    state["finished"] = True
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
+
+@app.route("/start_crawl", methods=["POST"])
+def start_crawl():
+    url = request.form.get("url", "").strip()
+    if not url.startswith("http"):
+        url = "https://" + url
+    parsed = urlparse(url)
+    domain = normalize_domain(parsed.netloc)
+    session_id = session.get("sid") or str(time.time()) + str(os.getpid())
+    session["sid"] = session_id
+
+    # 1. DNS existence check
+    try:
+        socket.gethostbyname(domain)
+    except socket.error:
+        return jsonify({"status": "error", "msg": "❌ Domain does not exist or is unreachable!"}), 400
+
+    # 2. WHOIS info
+    domain_info = get_domain_info(domain)
+
+    crawl_states[session_id] = {
+        "logs": [],
+        "progress": 0,
+        "pages_scanned": 0,
+        "visited": [],
+        "outbound_links": {},
+        "broken_links": {},
+        "broken_images": [],
+        "duplicate_content": [],
+        "finished": False,
+        "cancel": False,
+        "start_url": url,
+        "domain": domain,
+        "domain_info": domain_info,
+        "max_progress_seen": 0,
+        "summary": {},
+        "page_titles": {},
+        "meta_descs": {}
     }
 
-    function showDomainError(msg) {
-        document.getElementById("domainInfoPanel").style.display = 'none';
-        document.getElementById("domainInfoErrorText").innerText = msg;
-        document.getElementById("domainInfoErrorBox").style.display = '';
-    }
+    threading.Thread(target=crawl_site, args=(url, domain, session_id), daemon=True).start()
+    return jsonify({"status": "started", "domain_info": domain_info})
 
-    function pollProgress() {
-        fetch('/progress').then(r=>r.json()).then(data=>{
-            updateLogs(data.logs);
-            updateProgress(data.progress);
-            updateStatus(data.pages_scanned);
-            let info = data.domain_info || {};
-            if (info.created || info.registrar || info.domain || info.updated || info.nameservers) {
-                showDomainInfo(
-                    info.domain || lastDomainInfo.domain,
-                    info.created,
-                    info.registrar,
-                    info.updated,
-                    info.nameservers
-                );
-                lastDomainInfo = {...lastDomainInfo, ...info};
-            }
-            if(data.finished) {
-                clearInterval(crawlInterval);
-                crawlInterval = null;
-                document.getElementById("startBtn").disabled = false;
-                document.getElementById("cancelBtn").disabled = true;
-            }
-        });
+@app.route("/progress", methods=["GET"])
+def progress():
+    session_id = session.get("sid")
+    state = crawl_states.get(session_id)
+    if not state:
+        return jsonify({"logs": [], "progress": 0, "pages_scanned": 0, "finished": True, "domain_info": {}})
+    # Add domain_info, summary
+    resp = {
+        "logs": state["logs"],
+        "progress": state["progress"],
+        "pages_scanned": state["pages_scanned"],
+        "finished": state["finished"],
+        "domain_info": state.get("domain_info", {}),
+        "summary": state.get("summary", {})
     }
+    return jsonify(resp)
 
-    document.getElementById("startBtn").onclick = function() {
-        let url = document.getElementById("urlInput").value.trim();
-        if(!url) return alert("Please enter a website URL.");
-        document.getElementById("startBtn").disabled = true;
-        document.getElementById("cancelBtn").disabled = false;
-        document.getElementById("logArea").value = '';
-        document.getElementById("domainInfoPanel").style.display = 'none';
-        document.getElementById("domainInfoErrorBox").style.display = 'none';
-        fetch('/start_crawl', {
-            method: 'POST',
-            body: new URLSearchParams({url})
-        })
-        .then(resp => resp.json().then(data => ({status: resp.status, body: data})))
-        .then(data => {
-            if(data.status !== 200) {
-                document.getElementById("startBtn").disabled = false;
-                document.getElementById("cancelBtn").disabled = true;
-                showDomainError(data.body.msg);
-                return;
-            }
-            // Show right panel domain info
-            let info = data.body.domain_info || {};
-            showDomainInfo(
-                info.domain || url,
-                info.created,
-                info.registrar,
-                info.updated,
-                info.nameservers
-            );
-            lastDomainInfo = {
-                domain: info.domain || url,
-                created: info.created,
-                registrar: info.registrar,
-                updated: info.updated,
-                nameservers: info.nameservers
-            };
-            pollProgress();
-            crawlInterval = setInterval(pollProgress, 1200);
-        });
-    };
-    document.getElementById("cancelBtn").onclick = function() {
-        fetch('/cancel', {method:'POST'}).then(()=>{
-            document.getElementById("cancelBtn").disabled = true;
-        });
-    };
-    document.getElementById("exportBtn").onclick = function() {
-        window.open('/export','_blank');
-    };
-    document.getElementById("cancelBtn").disabled = true;
-</script>
-</body>
-</html>
+@app.route("/cancel", methods=["POST"])
+def cancel():
+    session_id = session.get("sid")
+    state = crawl_states.get(session_id)
+    if state:
+        state["cancel"] = True
+        state["logs"].append("⏹️ Crawl cancelled by user.")
+    return jsonify({"status": "cancelled"})
+
+@app.route("/export", methods=["GET"])
+def export():
+    session_id = session.get("sid")
+    state = crawl_states.get(session_id)
+    if not state:
+        return "No data", 404
+    domain_info = state.get("domain_info", {})
+    summary = state.get("summary", {})
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    domain_clean = state["domain"].replace('.', '_')
+    filename = f"crawl_results_{domain_clean}_{timestamp}.txt"
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write("Terry Ecom Link Checker Results\n")
+        f.write(f"Checked Domain: {domain_info.get('domain', state['domain'])}\n")
+        f.write(f"Created: {domain_info.get('created')}\n")
+        f.write(f"Expires: {domain_info.get('expires')}\n")
+        f.write(f"Org: {domain_info.get('org')}\n")
+        f.write(f"Registrar: {domain_info.get('registrar')}\n")
+        f.write(f"Nameservers: {', '.join(domain_info.get('nameservers', []))}\n")
+        # DNS/SSL
+        dns_info = summary.get('dns_info', {})
+        for typ, recs in dns_info.items():
+            f.write(f"DNS {typ}: {', '.join(recs) if recs else 'None'}\n")
+        ssl_info = summary.get('ssl_info', {})
+        f.write(f"SSL Supported: {ssl_info.get('ssl_supported')}\n")
+        if ssl_info.get('ssl_supported'):
+            f.write(f"SSL Certificate Expires: {ssl_info.get('ssl_not_after')}\n")
+        f.write(f"CDN: {summary.get('cdn')}\n")
+        f.write(f"Sitemap.xml: {summary.get('sitemap')}\n")
+        f.write(f"Robots.txt: {('Disallowed' if summary.get('crawler_disallowed') else 'Allowed')}\n")
+        f.write(f"Timestamp: {timestamp}\n\n")
+        f.write("External/Malformed Mailto Links (and where found):\n")
+        for link, sources in sorted(state["outbound_links"].items()):
+            for src in sources:
+                f.write(f"{link} (found on {src})\n")
+        f.write("\nBroken Links (404s) and where found:\n")
+        for link, sources in sorted(state["broken_links"].items()):
+            for src in sources:
+                f.write(f"{link} (found on {src})\n")
+        f.write("\nBroken Images (and where found):\n")
+        for img in state.get("broken_images", []):
+            f.write(f"{img['img']} (on {img['page']})\n")
+        f.write("\nDuplicate Content Pages:\n")
+        for u1, u2 in state.get("duplicate_content", []):
+            f.write(f"{u1} and {u2}\n")
+        f.write("\nFull Crawl Log:\n")
+        for line in state["logs"]:
+            f.write(line + "\n")
+    return send_file(filename, as_attachment=True)
+
+if __name__ == "__main__":
+    app.run(debug=True)
