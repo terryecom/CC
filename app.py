@@ -1,107 +1,92 @@
 import os
-import sqlite3
 import threading
 import time
 import socket
-from urllib.parse import urlparse, urljoin, urldefrag
-from datetime import datetime
+import sqlite3
 import secrets
+from datetime import datetime
+from urllib.parse import urlparse, urljoin, urldefrag
 
 import requests
 from bs4 import BeautifulSoup
 from flask import (
     Flask, render_template, request, jsonify, send_file, session,
-    redirect, url_for, flash, abort, make_response
+    redirect, url_for, flash
 )
-from flask_login import LoginManager, login_user, login_required, logout_user, current_user, UserMixin
+from flask_login import (
+    LoginManager, login_user, logout_user, login_required, current_user, UserMixin
+)
+from markupsafe import Markup
 
-# === CONFIG ===
+# === Flask Setup ===
+app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET', secrets.token_hex(16))
+
+# === Config ===
 ADMIN_EMAIL = "terry@terryecom.com"
 ADMIN_PASSWORD = "Aph180912!!!"
-BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
-APP_URL = os.environ.get("APP_URL", "https://yourdomain.com")
-app = Flask(__name__)
-app.secret_key = os.environ.get('FLASK_SECRET', secrets.token_urlsafe(16))
+LOGO_URL = "https://terryecom.com/LClogo.png"
+FAVICON_URL = "https://terryecom.com/favi.ico"
+APP_URL = os.environ.get("APP_URL", "https://linky-ex7b.onrender.com")
 
-# === FLASK-LOGIN SETUP ===
+# === Login Setup ===
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = "login"
 
-DB_PATH = "users.db"
-CRAWL_STATES = {}
+# === DB Setup (sqlite) ===
+DB = "users.db"
+def db_connect():
+    return sqlite3.connect(DB, check_same_thread=False)
+
+def init_db():
+    with db_connect() as con:
+        con.execute('''CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL,
+            verified INTEGER DEFAULT 0,
+            verify_token TEXT,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
+
+# === User Loader ===
+class User(UserMixin):
+    def __init__(self, id, name, email, password, verified):
+        self.id = id
+        self.name = name
+        self.email = email
+        self.password = password
+        self.verified = verified
+
+    @staticmethod
+    def get(email):
+        con = db_connect()
+        cur = con.cursor()
+        cur.execute("SELECT * FROM users WHERE email = ?", (email,))
+        row = cur.fetchone()
+        if row:
+            return User(*row[:5])
+        return None
+
+@login_manager.user_loader
+def load_user(user_id):
+    con = db_connect()
+    cur = con.cursor()
+    cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    if row:
+        return User(*row[:5])
+    return None
+
+# === Crawler Setup ===
 EXCLUDED_DOMAINS = [
     'g.co', 'facebook.com', 'instagram.com', 'x.com', 'twitter.com',
     'pinterest.com', 'shopify.com', 'edpb.europa.eu'
 ]
+crawl_states = {}
 
-# === USER CLASS FOR FLASK-LOGIN ===
-class User(UserMixin):
-    def __init__(self, id, email, password_hash, verified, is_admin):
-        self.id = id
-        self.email = email
-        self.password_hash = password_hash
-        self.verified = verified
-        self.is_admin = is_admin
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    conn = get_db()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            verified INTEGER NOT NULL DEFAULT 0,
-            verification_token TEXT,
-            is_admin INTEGER DEFAULT 0
-        )
-    """)
-    # Ensure admin exists
-    cur = conn.execute("SELECT * FROM users WHERE email=?", (ADMIN_EMAIL,))
-    if not cur.fetchone():
-        conn.execute(
-            "INSERT INTO users (email, password_hash, verified, is_admin) VALUES (?, ?, ?, ?)",
-            (ADMIN_EMAIL, ADMIN_PASSWORD, 1, 1)
-        )
-    conn.commit()
-    conn.close()
-
-init_db()
-
-@login_manager.user_loader
-def load_user(user_id):
-    conn = get_db()
-    row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
-    conn.close()
-    if row:
-        return User(row["id"], row["email"], row["password_hash"], row["verified"], row["is_admin"])
-    return None
-
-# === EMAIL (BREVO) ===
-def send_email_brevo(to_email, subject, html_content):
-    if not BREVO_API_KEY:
-        print("[WARN] BREVO_API_KEY not set, skipping email!")
-        return False
-    url = "https://api.brevo.com/v3/smtp/email"
-    data = {
-        "sender": {"name": "Link Checker", "email": ADMIN_EMAIL},
-        "to": [{"email": to_email}],
-        "subject": subject,
-        "htmlContent": html_content,
-    }
-    headers = {
-        "api-key": BREVO_API_KEY,
-        "Content-Type": "application/json"
-    }
-    resp = requests.post(url, json=data, headers=headers, timeout=10)
-    return resp.status_code == 201 or resp.status_code == 202
-
-# === UTILS ===
+# === Helpers ===
 def normalize_domain(domain):
     domain = domain.lower()
     if domain.startswith("www."):
@@ -122,9 +107,27 @@ def sanitize_input_url(input_url):
 def get_favicon_url(domain):
     return f"https://{domain}/favicon.ico"
 
-# === CRAWLER LOGIC ===
+def send_brevo_email(to, subject, html, text):
+    api_key = os.environ.get("BREVO_API_KEY")
+    if not api_key:
+        print("BREVO_API_KEY not set!")
+        return
+    data = {
+        "sender": {"name": "Link Checker", "email": ADMIN_EMAIL},
+        "to": [{"email": to}],
+        "subject": subject,
+        "htmlContent": html,
+        "textContent": text,
+    }
+    requests.post(
+        "https://api.brevo.com/v3/smtp/email",
+        json=data,
+        headers={"api-key": api_key, "Content-Type": "application/json"},
+        timeout=15
+    )
+
 def crawl_site(start_url, domain, session_id):
-    state = CRAWL_STATES[session_id]
+    state = crawl_states[session_id]
     state["logs"].append(f"🌐 Starting crawl: {start_url}")
     visited = set()
     to_visit = [start_url]
@@ -132,7 +135,7 @@ def crawl_site(start_url, domain, session_id):
     broken_links = {}
     pages_scanned = 0
     state["max_progress_seen"] = 0
-    should_cancel = lambda: CRAWL_STATES.get(session_id, {}).get("cancel", False)
+    should_cancel = lambda: crawl_states.get(session_id, {}).get("cancel", False)
 
     while to_visit and not should_cancel():
         url = to_visit.pop(0)
@@ -207,76 +210,84 @@ def crawl_site(start_url, domain, session_id):
     state["progress"] = 100
     state["finished"] = True
 
-# === ROUTES ===
+# === Routes ===
 
-@app.route("/", methods=["GET"])
-def home():
-    return render_template("index.html", favicon_url="/static/favi.ico")
+@app.before_request
+def ensure_db():
+    if not os.path.exists(DB):
+        init_db()
+
+@app.route("/")
+def index():
+    return render_template("index.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "POST":
+        name = request.form["name"].strip()
+        email = request.form["email"].strip().lower()
+        password = request.form["password"]
+        con = db_connect()
+        cur = con.cursor()
+        cur.execute("SELECT id FROM users WHERE email=?", (email,))
+        if cur.fetchone():
+            flash("Email already registered.", "danger")
+            return redirect(url_for("signup"))
+        verify_token = secrets.token_urlsafe(24)
+        cur.execute(
+            "INSERT INTO users (name, email, password, verify_token) VALUES (?,?,?,?)",
+            (name, email, password, verify_token)
+        )
+        con.commit()
+        # Send verification
+        verify_link = f"{APP_URL}/verify?email={email}&token={verify_token}"
+        send_brevo_email(
+            to=email,
+            subject="Verify your account",
+            html=f"<p>Click to verify: <a href='{verify_link}'>{verify_link}</a></p>",
+            text=f"Click to verify: {verify_link}"
+        )
+        flash("Check your email to verify your account!", "info")
+        return redirect(url_for("login"))
+    return render_template("signup.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+
+@app.route("/verify")
+def verify():
+    email = request.args.get("email", "")
+    token = request.args.get("token", "")
+    con = db_connect()
+    cur = con.cursor()
+    cur.execute("SELECT id, verify_token FROM users WHERE email=?", (email,))
+    row = cur.fetchone()
+    if not row or row[1] != token:
+        flash("Invalid verification link.", "danger")
+        return redirect(url_for("login"))
+    cur.execute("UPDATE users SET verified=1 WHERE id=?", (row[0],))
+    con.commit()
+    flash("Account verified. Please log in.", "success")
+    return redirect(url_for("login"))
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         email = request.form["email"].strip().lower()
-        pw = request.form["password"].strip()
-        conn = get_db()
-        row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        conn.close()
-        if row and row["password_hash"] == pw and row["verified"]:
-            user = User(row["id"], row["email"], row["password_hash"], row["verified"], row["is_admin"])
-            login_user(user)
-            return redirect(url_for("home"))
-        flash("Invalid login or email not verified.", "danger")
-    return render_template("login.html")
+        password = request.form["password"]
+        user = User.get(email)
+        if not user or user.password != password:
+            flash("Invalid credentials.", "danger")
+            return redirect(url_for("login"))
+        if not user.verified:
+            flash("Please verify your email.", "warning")
+            return redirect(url_for("login"))
+        login_user(user)
+        return redirect(url_for("index"))
+    return render_template("login.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
 
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for("home"))
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if request.method == "POST":
-        email = request.form["email"].strip().lower()
-        pw = request.form["password"].strip()
-        if not email or not pw:
-            flash("Email and password required.", "danger")
-            return redirect(url_for("register"))
-        conn = get_db()
-        existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        if existing:
-            flash("Email already registered.", "danger")
-            return redirect(url_for("register"))
-        token = secrets.token_urlsafe(24)
-        conn.execute(
-            "INSERT INTO users (email, password_hash, verification_token) VALUES (?, ?, ?)",
-            (email, pw, token)
-        )
-        conn.commit()
-        conn.close()
-        # Send verification email
-        verify_url = f"{APP_URL}/verify/{token}"
-        html = f"""
-        <p>Welcome! Click to verify your email:</p>
-        <a href="{verify_url}">{verify_url}</a>
-        """
-        send_email_brevo(email, "Verify your email for Link Checker", html)
-        flash("Check your inbox to verify email!", "info")
-        return redirect(url_for("login"))
-    return render_template("register.html")
-
-@app.route("/verify/<token>")
-def verify(token):
-    conn = get_db()
-    row = conn.execute("SELECT * FROM users WHERE verification_token=?", (token,)).fetchone()
-    if row:
-        conn.execute("UPDATE users SET verified=1, verification_token=NULL WHERE id=?", (row["id"],))
-        conn.commit()
-        conn.close()
-        flash("Email verified, you may now log in.", "success")
-        return redirect(url_for("login"))
-    flash("Invalid or expired verification link.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("login"))
 
 @app.route("/start_crawl", methods=["POST"])
 @login_required
@@ -299,7 +310,7 @@ def start_crawl():
     except socket.error:
         return jsonify({"status": "error", "msg": "❌ Domain does not exist or is unreachable!"}), 400
 
-    CRAWL_STATES[session_id] = {
+    crawl_states[session_id] = {
         "logs": [],
         "progress": 0,
         "pages_scanned": 0,
@@ -310,17 +321,19 @@ def start_crawl():
         "cancel": False,
         "start_url": url,
         "domain": domain,
-        "max_progress_seen": 0,
-        "favicon_url": get_favicon_url(domain)
+        "max_progress_seen": 0
     }
-    threading.Thread(target=crawl_site, args=(url, domain, session_id), daemon=True).start()
-    return jsonify({"status": "started", "favicon_url": get_favicon_url(domain)})
+    favicon_url = get_favicon_url(domain)
+    crawl_states[session_id]["favicon_url"] = favicon_url
 
-@app.route("/progress", methods=["GET"])
+    threading.Thread(target=crawl_site, args=(url, domain, session_id), daemon=True).start()
+    return jsonify({"status": "started", "favicon_url": favicon_url})
+
+@app.route("/progress")
 @login_required
 def progress():
     session_id = session.get("sid")
-    state = CRAWL_STATES.get(session_id)
+    state = crawl_states.get(session_id)
     if not state:
         return jsonify({"logs": [], "progress": 0, "pages_scanned": 0, "finished": True})
     return jsonify({
@@ -335,17 +348,17 @@ def progress():
 @login_required
 def cancel():
     session_id = session.get("sid")
-    state = CRAWL_STATES.get(session_id)
+    state = crawl_states.get(session_id)
     if state:
         state["cancel"] = True
         state["logs"].append("⏹️ Crawl cancelled by user.")
     return jsonify({"status": "cancelled"})
 
-@app.route("/export", methods=["GET"])
+@app.route("/export")
 @login_required
 def export():
     session_id = session.get("sid")
-    state = CRAWL_STATES.get(session_id)
+    state = crawl_states.get(session_id)
     if not state:
         return "No data", 404
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -365,52 +378,60 @@ def export():
                 f.write(f"{link} (found on {src})\n")
     return send_file(filename, as_attachment=True)
 
+# === Admin Only ===
 @app.route("/admin", methods=["GET", "POST"])
-@login_required
 def admin():
-    if not current_user.is_admin:
-        abort(403)
-    conn = get_db()
-    total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    verified = conn.execute("SELECT COUNT(*) FROM users WHERE verified=1").fetchone()[0]
-    features = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]  # Example stat
-    return render_template("admin.html", total=total, verified=verified)
+    # Secret admin login
+    if not session.get("admin"):
+        if request.method == "POST":
+            email = request.form.get("email")
+            password = request.form.get("password")
+            if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
+                session["admin"] = True
+            else:
+                flash("Invalid admin credentials.", "danger")
+                return redirect(url_for("admin"))
+        else:
+            return render_template("admin_login.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
+    # Stats page (very simple!)
+    con = db_connect()
+    cur = con.cursor()
+    cur.execute("SELECT COUNT(*) FROM users")
+    total_users = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM users WHERE verified=1")
+    verified = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM users WHERE verified=0")
+    unverified = cur.fetchone()[0]
+    return render_template("admin_stats.html", total_users=total_users, verified=verified, unverified=unverified, logo_url=LOGO_URL, favicon_url=FAVICON_URL)
 
-@app.route("/feature_report", methods=["POST"])
-@login_required
-def feature_report():
-    email = current_user.email
-    name = request.form.get("name", "")
-    msg = request.form.get("msg", "")
-    full = f"From: {name or email} ({email})\n\n{msg}"
-    # Email to admin
-    send_email_brevo(ADMIN_EMAIL, "Feature/Bug Report", full.replace('\n','<br>'))
-    return jsonify({"status": "ok"})
+@app.route("/feature", methods=["GET", "POST"])
+def feature():
+    if request.method == "POST":
+        name = request.form.get("name", "")
+        email = request.form.get("email", "")
+        message = request.form.get("message", "")
+        subj = "[LINKY REPORT] Feature/Bug"
+        send_brevo_email(
+            to=ADMIN_EMAIL,
+            subject=subj,
+            html=f"<b>From:</b> {name} ({email})<br><pre>{Markup.escape(message)}</pre>",
+            text=f"From: {name} ({email})\n\n{message}"
+        )
+        flash("Your feedback has been sent!", "success")
+        return redirect(url_for("feature"))
+    return render_template("feature.html", logo_url=LOGO_URL, favicon_url=FAVICON_URL)
 
-# ==== TEMPLATE RENDERERS ====
+# === Minimal template stubs ===
 @app.context_processor
-def inject_logo():
-    return dict(
-        logo_url="https://terryecom.com/LClogo.png",
-        favicon_url="https://terryecom.com/favi.ico"
-    )
+def inject_brand():
+    return dict(logo_url=LOGO_URL, favicon_url=FAVICON_URL)
 
-# ========== TEMPLATES ==========
-from flask import Markup
-@app.template_global()
-def render_header(title):
-    return Markup(f"""
-    <head>
-        <meta charset="UTF-8">
-        <title>{title}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="icon" href="https://terryecom.com/favi.ico" type="image/x-icon">
-        <link rel="shortcut icon" href="https://terryecom.com/favi.ico" type="image/x-icon">
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    </head>
-    """)
+@app.errorhandler(404)
+def page_not_found(e):
+    return f"<h1>404 Not Found</h1>", 404
 
-# (Templates: You should still have `templates/index.html`, `login.html`, `register.html`, etc. See previous replies for full HTML if needed.)
-
+# === Run app ===
 if __name__ == "__main__":
+    if not os.path.exists(DB):
+        init_db()
     app.run(debug=True)
