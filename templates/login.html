@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Login - Terry Ecom Link Checker{% endblock %}
+{% block content %}
+<div class="container mt-5">
+  <div class="row justify-content-center">
+    <div class="col-md-5">
+      <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white fs-5">Login</div>
+        <div class="card-body">
+          <form method="post">
+            <div class="mb-3">
+              <label>Email</label>
+              <input type="email" class="form-control" name="email" required>
+            </div>
+            <div class="mb-3">
+              <label>Password</label>
+              <input type="password" class="form-control" name="password" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Login</button>
+            <div class="mt-3 text-center small">
+              New user? <a href="{{ url_for('signup') }}">Sign up</a>
+              <br>
+              <a href="{{ url_for('admin_login') }}">Admin Login</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
