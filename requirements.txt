@@ -1,6 +1,6 @@
 Flask
+flask-login
 requests
-beautifulsoup4
-gunicorn
-python-whois
-dnspython
+Werkzeug
+Jinja2
+
