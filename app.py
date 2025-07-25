@@ -26,7 +26,6 @@ def normalize_domain(domain):
 def get_domain_info(domain):
     try:
         w = whois.whois(domain)
-        # Some WHOIS servers return lists for creation_date
         created = w.creation_date
         if isinstance(created, list):
             created = created[0]
@@ -66,4 +65,143 @@ def crawl_site(start_url, domain, session_id):
                     href = a['href'].strip()
                     if href == "#" or href.lower().startswith(("javascript:", "tel:")):
                         continue
-                    if href.startswit
+                    if href.startswith("mailto:"):
+                        outbound_links.setdefault(href, set()).add(url)
+                        state["logs"].append(f"📧 Mailto: {href} (found on {url})")
+                        continue
+
+                    raw_url = urldefrag(urljoin(url, href))[0]
+                    parsed = urlparse(raw_url)
+                    netloc = normalize_domain(parsed.netloc)
+                    normalized_url = parsed._replace(netloc=netloc).geturl()
+
+                    if netloc == "" or domain in netloc:
+                        if normalized_url not in visited and normalized_url not in to_visit:
+                            to_visit.append(normalized_url)
+                    else:
+                        if any(skip in netloc for skip in EXCLUDED_DOMAINS):
+                            continue
+                        outbound_links.setdefault(normalized_url, set()).add(url)
+                        state["logs"].append(f"🔗 Outbound: {normalized_url} (found on {url})")
+                        try:
+                            ext_resp = requests.get(normalized_url, timeout=5)
+                            if ext_resp.status_code == 404:
+                                broken_links.setdefault(normalized_url, set()).add(url)
+                                state["logs"].append(f"❌ 404 External: {normalized_url} (found on {url})")
+                        except Exception:
+                            broken_links.setdefault(normalized_url, set()).add(url)
+                            state["logs"].append(f"❌ Failed to load: {normalized_url} (found on {url})")
+
+                pages_scanned += 1
+                # Progress: never decrease
+                progress = int((pages_scanned / (pages_scanned + len(to_visit))) * 100) if (pages_scanned + len(to_visit)) else 100
+                state["max_progress_seen"] = max(state.get("max_progress_seen", 0), progress)
+                state["progress"] = state["max_progress_seen"]
+                state["pages_scanned"] = pages_scanned
+
+            except Exception:
+                broken_links.setdefault(url, set()).add(url)
+                state["logs"].append(f"❌ Failed to crawl: {url} (found on {url})")
+
+        # State updates for frontend/export
+        state["visited"] = list(visited)
+        state["outbound_links"] = {k: list(v) for k, v in outbound_links.items()}
+        state["broken_links"] = {k: list(v) for k, v in broken_links.items()}
+
+    state["logs"].append(f"✅ Crawl complete. Outbound links: {len(outbound_links)}, 404s: {len(broken_links)}")
+    state["progress"] = 100
+    state["finished"] = True
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
+
+@app.route("/start_crawl", methods=["POST"])
+def start_crawl():
+    url = request.form.get("url", "").strip()
+    if not url.startswith("http"):
+        url = "https://" + url
+    parsed = urlparse(url)
+    domain = normalize_domain(parsed.netloc)
+    session_id = session.get("sid") or str(time.time()) + str(os.getpid())
+    session["sid"] = session_id
+
+    # 1. DNS existence check
+    try:
+        socket.gethostbyname(domain)
+    except socket.error:
+        return jsonify({"status": "error", "msg": "❌ Domain does not exist or is unreachable!"}), 400
+
+    # 2. WHOIS info
+    created, registrar = get_domain_info(domain)
+    domain_info = {"created": str(created), "registrar": str(registrar)}
+
+    # 3. Setup crawl state
+    crawl_states[session_id] = {
+        "logs": [],
+        "progress": 0,
+        "pages_scanned": 0,
+        "visited": [],
+        "outbound_links": {},
+        "broken_links": {},
+        "finished": False,
+        "cancel": False,
+        "start_url": url,
+        "domain": domain,
+        "domain_info": domain_info,
+        "max_progress_seen": 0
+    }
+
+    threading.Thread(target=crawl_site, args=(url, domain, session_id), daemon=True).start()
+    return jsonify({"status": "started", "domain_info": domain_info})
+
+@app.route("/progress", methods=["GET"])
+def progress():
+    session_id = session.get("sid")
+    state = crawl_states.get(session_id)
+    if not state:
+        return jsonify({"logs": [], "progress": 0, "pages_scanned": 0, "finished": True, "domain_info": {}})
+    return jsonify({
+        "logs": state["logs"],
+        "progress": state["progress"],
+        "pages_scanned": state["pages_scanned"],
+        "finished": state["finished"],
+        "domain_info": state.get("domain_info", {})
+    })
+
+@app.route("/cancel", methods=["POST"])
+def cancel():
+    session_id = session.get("sid")
+    state = crawl_states.get(session_id)
+    if state:
+        state["cancel"] = True
+        state["logs"].append("⏹️ Crawl cancelled by user.")
+    return jsonify({"status": "cancelled"})
+
+@app.route("/export", methods=["GET"])
+def export():
+    session_id = session.get("sid")
+    state = crawl_states.get(session_id)
+    if not state:
+        return "No data", 404
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    domain_clean = state["domain"].replace('.', '_')
+    filename = f"crawl_results_{domain_clean}_{timestamp}.txt"
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write("Terry Ecom Link Checker Results\n")
+        f.write(f"Checked Domain: {state['domain']}\n")
+        f.write(f"Created: {state['domain_info'].get('created')}\n")
+        f.write(f"Registrar: {state['domain_info'].get('registrar')}\n")
+        f.write(f"Timestamp: {timestamp}\n\n")
+        f.write("Outbound Links (and where found):\n")
+        for link, sources in sorted(state["outbound_links"].items()):
+            for src in sources:
+                f.write(f"{link} (found on {src})\n")
+        f.write("\nBroken Links (404s) and where found:\n")
+        for link, sources in sorted(state["broken_links"].items()):
+            for src in sources:
+                f.write(f"{link} (found on {src})\n")
+    return send_file(filename, as_attachment=True)
+
+if __name__ == "__main__":
+    app.run(debug=True)
