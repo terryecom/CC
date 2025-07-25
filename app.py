@@ -66,8 +66,21 @@ def crawl_site(start_url, domain, session_id):
                     if href == "#" or href.lower().startswith(("javascript:", "tel:")):
                         continue
                     if href.startswith("mailto:"):
-                        outbound_links.setdefault(href, set()).add(url)
-                        state["logs"].append(f"📧 Mailto: {href} (found on {url})")
+                        try:
+                            email = href.split(':',1)[1].split('?',1)[0]
+                            email_domain = email.split('@')[1].lower()
+                            # Only log if not the same domain
+                            if normalize_domain(email_domain) != domain:
+                                already_seen = outbound_links.setdefault(href, set())
+                                if url not in already_seen:
+                                    already_seen.add(url)
+                                    state["logs"].append(f"📧 External mailto: {href} (found on {url})")
+                        except Exception:
+                            # Log malformed mailto (missing @ etc)
+                            already_seen = outbound_links.setdefault(href, set())
+                            if url not in already_seen:
+                                already_seen.add(url)
+                                state["logs"].append(f"📧 Malformed mailto: {href} (found on {url})")
                         continue
 
                     raw_url = urldefrag(urljoin(url, href))[0]
@@ -193,7 +206,7 @@ def export():
         f.write(f"Created: {state['domain_info'].get('created')}\n")
         f.write(f"Registrar: {state['domain_info'].get('registrar')}\n")
         f.write(f"Timestamp: {timestamp}\n\n")
-        f.write("Outbound Links (and where found):\n")
+        f.write("External/Malformed Mailto Links (and where found):\n")
         for link, sources in sorted(state["outbound_links"].items()):
             for src in sources:
                 f.write(f"{link} (found on {src})\n")
