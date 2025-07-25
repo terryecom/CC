@@ -2,5 +2,5 @@ Flask
 requests
 beautifulsoup4
 gunicorn
-whois @ git+https://github.com/regru/python-whois.git
+python-whois
 dnspython
